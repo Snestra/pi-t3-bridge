@@ -1,4 +1,5 @@
-import { mkdir, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -364,6 +365,29 @@ export const brief = ({
     .flatMap(([key, text]) => (drop.includes(key) ? [] : [text]))
     .join("\n\n")}${extra}`;
 };
+
+// A git repo with one commit, at <root>/<name>/repo, for a child to work in.
+export const childRepo = async (root, name) => {
+  const repo = path.join(root, name, "repo");
+
+  await mkdir(path.join(repo, "src"), { recursive: true });
+  await writeFile(path.join(repo, "src", "keep.txt"), "keep\n");
+  execFileSync("git", ["init", "-q"], { cwd: repo });
+  execFileSync("git", ["add", "."], { cwd: repo });
+  execFileSync(
+    "git",
+    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
+    { cwd: repo }
+  );
+
+  return repo;
+};
+
+// A file outside every writable root, which a sandboxed child must not create.
+export const escapePath = path.join(
+  homedir(),
+  ".pi-t3-bridge-sandbox-escape-test"
+);
 
 export const onPi = (model, thinking) => ({
   model: `cliproxyapi/${model}`,

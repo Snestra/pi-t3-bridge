@@ -25,7 +25,9 @@ You need the following programs:
 - Pi 1.4.0 or later
 - T3 Code, if you want to run Pi threads inside T3 or call T3 tools from Pi
 
-The child sandbox uses the macOS `sandbox-exec` command, so the shell sandbox for delegated children works on macOS only.
+Delegated children run their shell commands in a sandbox: `sandbox-exec` on macOS, and `bwrap` (bubblewrap) on Linux and WSL2. Linux needs the `bubblewrap` package and unprivileged user namespaces. On Ubuntu, the `bubblewrap` package ships an AppArmor profile that lets `bwrap` run (checked on 26.04). If AppArmor still blocks it, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`. Native Windows and WSL1 have no sandbox. Where no sandbox can run, a child's shell commands are blocked unless `childSandbox` is `"off"` in the config.
+
+The tests need Docker, because they also run the child tests in Linux containers.
 
 ## Install
 
@@ -220,6 +222,7 @@ The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Ev
 ```json
 {
   "bashTimeoutSeconds": 300,
+  "childSandbox": "on",
   "mcpUrl": "http://127.0.0.1:3773/mcp",
   "steer": "on"
 }
@@ -228,6 +231,7 @@ The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Ev
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `bashTimeoutSeconds` | `300` | The longest a shell command can run, in seconds. |
+| `childSandbox` | `"on"` | Whether a delegated child's shell commands need a sandbox. With `"on"`, a child's `bash` is blocked when no sandbox can run. With `"off"`, commands run with no sandbox on every platform, and the child's report says `SANDBOX: off`. |
 | `mcpUrl` | `http://127.0.0.1:3773/mcp` | The T3 MCP endpoint to use outside a T3 thread. |
 | `steer` | `"on"` | The stop checks, as `"on"`, `"shadow"`, or `"off"`. |
 

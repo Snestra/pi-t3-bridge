@@ -1,16 +1,17 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 
 import { classifyFailure } from "../src/bridge/failures.ts";
 import {
   brief,
+  childRepo,
+  escapePath,
   liveCatalog,
   newWorld,
   onPi,
@@ -644,26 +645,8 @@ test("a dropped stream that Pi's retry recovers leaves the family open", async (
 
 // Inside a child
 
-const childRepo = async (name) => {
-  const repo = path.join(temporary, name, "repo");
-
-  await mkdir(path.join(repo, "src"), { recursive: true });
-  await writeFile(path.join(repo, "src", "keep.txt"), "keep\n");
-  execFileSync("git", ["init", "-q"], { cwd: repo });
-  execFileSync("git", ["add", "."], { cwd: repo });
-  execFileSync(
-    "git",
-    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"],
-    { cwd: repo }
-  );
-
-  return repo;
-};
-
-const escapePath = path.join(homedir(), ".pi-t3-bridge-sandbox-escape-test");
-
 test("a child writes only its listed files, inside a sandbox, and the code writes its report", async () => {
-  const repo = await childRepo("child-ok");
+  const repo = await childRepo(temporary, "child-ok");
 
   const child = await startSession({
     cwd: repo,
@@ -679,6 +662,8 @@ test("a child writes only its listed files, inside a sandbox, and the code write
         [["write", { content: "x\n", path: "other.txt" }]],
         [["bash", { command: `echo x > ${escapePath}` }]],
         [["bash", { command: "echo y > stray.txt" }]],
+        [["bash", { command: "echo x > .git/hooks/pre-commit" }]],
+        [["bash", { command: "git config core.hooksPath /tmp/x" }]],
       ],
       brief({
         accept: "grep -q done src/a.txt",
@@ -692,11 +677,24 @@ test("a child writes only its listed files, inside a sandbox, and the code write
     assert.equal(results[1].isError, true);
     assert.match(results[1].text, /Files you may write/u);
     assert.equal(existsSync(escapePath), false, "the sandbox let a write out");
-    assert.match(results[2].text, /not permitted/iu);
+    assert.match(results[2].text, /not permitted|read-only file system/iu);
+    assert.equal(
+      existsSync(path.join(repo, ".git", "hooks", "pre-commit")),
+      false,
+      "the sandbox let a hook in"
+    );
+    assert.throws(
+      () =>
+        execFileSync("git", ["config", "--get", "core.hooksPath"], {
+          cwd: repo,
+        }),
+      "the sandbox let git config change core.hooksPath"
+    );
 
     const report = child.lastAssistantText();
 
     assert.match(report, /Checked by pi-t3-bridge/u);
+    assert.match(report, /SANDBOX: sandbox-exec|SANDBOX: bubblewrap/u);
     assert.match(report, /exit 0 \(before: exit [1-9]\)/u);
     assert.match(report, /stray\.txt/u);
     assert.match(report, /STATUS: ISSUES/u);
@@ -717,8 +715,82 @@ test("a child writes only its listed files, inside a sandbox, and the code write
   }
 });
 
+test("a child cannot create a missing hooks directory", async () => {
+  const repo = await childRepo(temporary, "child-no-hooks");
+
+  await rm(path.join(repo, ".git", "hooks"), { force: true, recursive: true });
+
+  const child = await startSession({
+    cwd: repo,
+    modelId: "gpt-6.1-sol",
+    name: "child-no-hooks",
+    root: temporary,
+  });
+
+  try {
+    await child.turn(
+      [
+        [
+          [
+            "bash",
+            {
+              command: "mkdir -p .git/hooks && echo x > .git/hooks/pre-commit",
+            },
+          ],
+        ],
+      ],
+      brief({ accept: "true", files: ["src/a.txt"], job: "check" }),
+      "STATUS: PASS"
+    );
+
+    assert.equal(
+      existsSync(path.join(repo, ".git", "hooks", "pre-commit")),
+      false,
+      "the sandbox let a hook in"
+    );
+  } finally {
+    child.session.dispose();
+  }
+});
+
+test("a child with childSandbox off runs bash bare and its report says so", async () => {
+  const repo = await childRepo(temporary, "child-sandbox-off");
+
+  const configFile = path.join(
+    process.env.XDG_CONFIG_HOME,
+    "pi-t3",
+    "config.json"
+  );
+
+  await mkdir(path.dirname(configFile), { recursive: true });
+  await writeFile(configFile, JSON.stringify({ childSandbox: "off" }));
+
+  const child = await startSession({
+    cwd: repo,
+    modelId: "gpt-6.1-sol",
+    name: "child-sandbox-off",
+    root: temporary,
+  });
+
+  try {
+    const [escaped] = await child.turn(
+      [[["bash", { command: `echo x > ${escapePath}` }]]],
+      brief({ accept: "true", files: ["src/a.txt"], job: "check" }),
+      "STATUS: PASS"
+    );
+
+    assert.equal(escaped.isError, false, escaped.text);
+    assert.equal(existsSync(escapePath), true);
+    assert.match(child.lastAssistantText(), /SANDBOX: off/u);
+  } finally {
+    child.session.dispose();
+    await rm(configFile, { force: true });
+    await rm(escapePath, { force: true });
+  }
+});
+
 test("an implementation child whose acceptance already passes is stopped as BLOCKED", async () => {
-  const repo = await childRepo("child-green");
+  const repo = await childRepo(temporary, "child-green");
 
   const child = await startSession({
     cwd: repo,
@@ -756,7 +828,7 @@ test("an implementation child whose acceptance already passes is stopped as BLOC
 });
 
 test("a child past its time limit or its disk limit can only report", async () => {
-  const repo = await childRepo("child-limits");
+  const repo = await childRepo(temporary, "child-limits");
 
   const timed = await startSession({
     cwd: repo,
@@ -827,7 +899,7 @@ test("a slow disk check still stops a late tool call and an over-limit report", 
 
   try {
     const timed = await startSession({
-      cwd: await childRepo("slow-du-time"),
+      cwd: await childRepo(temporary, "slow-du-time"),
       modelId: "gpt-6-luna",
       name: "slow-du-time",
       root: temporary,
@@ -851,7 +923,7 @@ test("a slow disk check still stops a late tool call and an over-limit report", 
     }
 
     const filled = await startSession({
-      cwd: await childRepo("slow-du-disk"),
+      cwd: await childRepo(temporary, "slow-du-disk"),
       modelId: "gpt-6-luna",
       name: "slow-du-disk",
       root: temporary,
@@ -895,7 +967,7 @@ test("a slow disk check still stops a late tool call and an over-limit report", 
 
 test("a child that fills its disk with write and then reports is BLOCKED", async () => {
   const child = await startSession({
-    cwd: await childRepo("write-fill"),
+    cwd: await childRepo(temporary, "write-fill"),
     modelId: "gpt-6-luna",
     name: "write-fill",
     root: temporary,
@@ -938,7 +1010,7 @@ test("a batch of parallel bash calls scans the workdir at most twice", async () 
   process.env.PATH = `${bin}:${previousPath}`;
 
   const child = await startSession({
-    cwd: await childRepo("parallel-du"),
+    cwd: await childRepo(temporary, "parallel-du"),
     modelId: "gpt-6-luna",
     name: "parallel-du",
     root: temporary,
@@ -990,7 +1062,7 @@ test("models.json keeps the shape the previous release reads", async () => {
 // child records the block with its own T3 thread ID, and the parent's
 // task_status result gets it from there.
 test("the parent's task_status result carries the block the child's code wrote", async () => {
-  const repo = await childRepo("child-report");
+  const repo = await childRepo(temporary, "child-report");
 
   const child = await startSession({
     cwd: repo,
@@ -1033,7 +1105,7 @@ test("the parent's task_status result carries the block the child's code wrote",
 });
 
 test("a listed dir/** glob also covers the directory entry itself, such as a .venv symlink", async () => {
-  const repo = await childRepo("child-venv");
+  const repo = await childRepo(temporary, "child-venv");
 
   const child = await startSession({
     cwd: repo,

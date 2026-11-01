@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -17,32 +17,28 @@ import { ownThreadId } from "../bridge/thread.ts";
 import { sessionBrief } from "./brief.ts";
 import type { Brief } from "./brief.ts";
 import { policyPath } from "./resources.ts";
+import {
+  chooseSandbox,
+  real,
+  sandboxLabel,
+  unavailableReason,
+  wrap,
+} from "./sandbox.ts";
+import type { Sandbox } from "./sandbox.ts";
 
 // Rules a delegated child cannot talk its way around. A session whose first
-// message is a pstack brief gets them: writes only inside its workdir (a macOS
-// sandbox around every shell command) and only to its listed files (write and
-// edit), its time and disk limits, and a report line the code writes from
-// commands it runs itself, not from what the model says.
+// message is a pstack brief gets them: writes only inside its workdir (a
+// sandbox around every shell command, or no shell at all) and only to its
+// listed files (write and edit), its time and disk limits, and a report line
+// the code writes from commands it runs itself, not from what the model says.
 
 const run = promisify(execFile);
-
-const SANDBOX = "/usr/bin/sandbox-exec";
 
 const DU_TIMEOUT_MS = 15_000;
 
 const SCRATCH = ".scratch/";
 
 const WRITE_TOOLS: ReadonlySet<string> = new Set(["edit", "write"]);
-
-const quote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
-
-const real = (target: string): string => {
-  try {
-    return realpathSync(target);
-  } catch {
-    return target;
-  }
-};
 
 // Where a write to target lands once every symlink on its path is followed.
 // Undefined for a dangling link, whose landing spot cannot be known.
@@ -67,50 +63,6 @@ const landing = (target: string): string | undefined => {
     ? undefined
     : path.join(base, path.basename(target));
 };
-
-// Tool caches and installs stay writable, so uv, npm and mise work.
-const writableRoots = (workdir: string, gitDir: string | undefined) => {
-  const home = homedir();
-
-  return [
-    workdir,
-    gitDir,
-    path.join(home, ".cache"),
-    path.join(home, "Library", "Caches"),
-    path.join(home, ".npm"),
-    path.join(home, ".local", "share", "uv"),
-    path.join(home, ".local", "share", "mise"),
-    "/private/var/folders",
-    "/dev",
-  ]
-    .filter((root): root is string => root !== undefined)
-    .flatMap((root) => [root, real(root)]);
-};
-
-// Hooks and config in the git dir run later, outside the sandbox, when the
-// parent commits or merges the child's work, so they stay read-only.
-const gitDenies = (gitDir: string | undefined): string[] =>
-  gitDir === undefined
-    ? []
-    : [gitDir, real(gitDir)].flatMap((dir) => [
-        `(subpath ${JSON.stringify(path.join(dir, "hooks"))})`,
-        `(literal ${JSON.stringify(path.join(dir, "config"))})`,
-        `(literal ${JSON.stringify(path.join(dir, "config.lock"))})`,
-      ]);
-
-const sandboxProfile = (
-  roots: readonly string[],
-  denies: readonly string[]
-): string =>
-  [
-    "(version 1)",
-    "(allow default)",
-    "(deny file-write*)",
-    `(allow file-write* ${[...new Set(roots)].map((root) => `(subpath ${JSON.stringify(root)})`).join(" ")})`,
-    ...(denies.length === 0
-      ? []
-      : [`(deny file-write* ${[...new Set(denies)].join(" ")})`]),
-  ].join("");
 
 const globToRegExp = (glob: string): RegExp => {
   const source = glob
@@ -228,11 +180,12 @@ interface Report {
   readonly diskMb: number | undefined;
   readonly minutes: number;
   readonly outside: readonly string[];
+  readonly sandbox: Sandbox | undefined;
   readonly status: string;
 }
 
 const reportBlock = (report: Report): string => {
-  const { accepted, brief, diskMb, minutes, outside } = report;
+  const { accepted, brief, diskMb, minutes, outside, sandbox } = report;
   const tail = accepted.tail.trim().split("\n").slice(-10).join("\n");
 
   const before =
@@ -248,6 +201,7 @@ const reportBlock = (report: Report): string => {
     `FILES: ${report.changed} changed; outside the list: ${outside.length === 0 ? "none" : outside.join(", ")}`,
     `DISK: ${diskMb === undefined ? "unknown" : `+${diskMb.toFixed(1)} MB`} in the workdir (limit ${brief.diskMb ?? "?"} MB)`,
     `TIME: ${minutes.toFixed(1)} of ${brief.minutes ?? "?"} min`,
+    `SANDBOX: ${sandboxLabel(sandbox)}`,
   ].join("\n");
 };
 
@@ -260,6 +214,7 @@ interface ChildState {
   gitDir: string | undefined;
   greenAtStart: boolean;
   ready: boolean;
+  sandbox: Sandbox | undefined;
 }
 
 export const registerChild = (pi: ExtensionAPI): void => {
@@ -272,24 +227,29 @@ export const registerChild = (pi: ExtensionAPI): void => {
     gitDir: undefined,
     greenAtStart: false,
     ready: false,
+    sandbox: undefined,
   };
-
-  const sandboxed = (command: string, workdir: string): string =>
-    existsSync(SANDBOX)
-      ? `${SANDBOX} -p ${quote(sandboxProfile(writableRoots(workdir, state.gitDir), gitDenies(state.gitDir)))} /bin/bash -c ${quote(command)}`
-      : command;
 
   const runAcceptance = async (
     command: string,
     workdir: string,
     seconds: number
   ): Promise<{ exit: number; tail: string }> => {
+    const wrapped = wrap(state.sandbox, command, workdir, state.gitDir);
+
+    if (wrapped === undefined) {
+      return {
+        exit: 126,
+        tail: `not run: no sandbox (${unavailableReason(state.sandbox)})`,
+      };
+    }
+
     try {
-      const { stdout, stderr } = await run(
-        "/bin/bash",
-        ["-c", sandboxed(command, workdir)],
-        { cwd: workdir, maxBuffer: 16 * 1024 * 1024, timeout: seconds * 1000 }
-      );
+      const { stdout, stderr } = await run("/bin/bash", ["-c", wrapped], {
+        cwd: workdir,
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: seconds * 1000,
+      });
 
       return { exit: 0, tail: `${stdout}${stderr}` };
     } catch (error) {
@@ -320,6 +280,8 @@ export const registerChild = (pi: ExtensionAPI): void => {
     } catch {
       state.gitDir = undefined;
     }
+
+    state.sandbox = await chooseSandbox(state.gitDir);
 
     state.baselineKb = await duKb(ctx.cwd);
 
@@ -388,12 +350,21 @@ export const registerChild = (pi: ExtensionAPI): void => {
     const { input } = event;
 
     if (event.toolName === "bash" && Value.Check(BashInputSchema, input)) {
+      const wrapped = wrap(state.sandbox, input.command, ctx.cwd, state.gitDir);
+
+      if (wrapped === undefined) {
+        return {
+          block: true,
+          reason: `No sandbox can run for this shell (${unavailableReason(state.sandbox)}), so shell commands are blocked. The user can install \`bubblewrap\`, set kernel.apparmor_restrict_unprivileged_userns=0, or set "childSandbox": "off" in ~/.config/pi-t3/config.json. Use no more shell commands. Report STATUS: BLOCKED (no sandbox).`,
+        };
+      }
+
       const limit = Math.max(1, Math.ceil(remaining));
 
       input.timeout = Value.Check(Type.Number(), input.timeout)
         ? Math.min(input.timeout, limit)
         : limit;
-      input.command = sandboxed(input.command, ctx.cwd);
+      input.command = wrapped;
 
       return;
     }
@@ -497,7 +468,10 @@ export const registerChild = (pi: ExtensionAPI): void => {
     const diskOver = state.diskOver || overLimit(diskMb, brief.diskMb);
 
     const status = reportStatus(
-      state.greenAtStart || overTime || diskOver,
+      state.greenAtStart ||
+        overTime ||
+        diskOver ||
+        unavailableReason(state.sandbox) !== undefined,
       accepted,
       outside
     );
@@ -510,6 +484,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
       diskMb,
       minutes,
       outside,
+      sandbox: state.sandbox,
       status,
     });
 

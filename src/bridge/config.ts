@@ -17,8 +17,14 @@ const SteerSchema = Type.Union([
   Type.Literal("shadow"),
 ]);
 
+const ChildSandboxSchema = Type.Union([
+  Type.Literal("on"),
+  Type.Literal("off"),
+]);
+
 export interface Config {
   readonly bashTimeoutSeconds: number | undefined;
+  readonly childSandbox: Static<typeof ChildSandboxSchema> | undefined;
   readonly mcpUrl: string | undefined;
   readonly steer: Static<typeof SteerSchema> | undefined;
 }
@@ -30,6 +36,7 @@ interface Loaded {
 
 const EMPTY: Config = {
   bashTimeoutSeconds: undefined,
+  childSandbox: undefined,
   mcpUrl: undefined,
   steer: undefined,
 };
@@ -80,6 +87,7 @@ const parse = (text: string): Loaded => {
         "bashTimeoutSeconds",
         Type.Number({ exclusiveMinimum: 0 })
       ),
+      childSandbox: field("childSandbox", ChildSandboxSchema),
       mcpUrl: field("mcpUrl", Type.String({ minLength: 1 })),
       steer: field("steer", SteerSchema),
     },
