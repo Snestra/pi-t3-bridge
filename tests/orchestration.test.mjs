@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -688,6 +689,7 @@ test("a child writes only its listed files, inside a sandbox, and the code write
         execFileSync("git", ["config", "--get", "core.hooksPath"], {
           cwd: repo,
         }),
+      { status: 1 },
       "the sandbox let git config change core.hooksPath"
     );
 
@@ -711,6 +713,44 @@ test("a child writes only its listed files, inside a sandbox, and the code write
     assert.equal(line.status, "ISSUES");
   } finally {
     child.session.dispose();
+    await rm(escapePath, { force: true });
+  }
+});
+
+// mise and npm directories on PATH are writable inside the sandbox, so a
+// child could leave a bwrap of its own there for its next command to run.
+test("a bwrap found earlier on PATH does not run a child's commands", async () => {
+  const bin = path.join(temporary, "fake-bwrap-bin");
+
+  await mkdir(bin, { recursive: true });
+  await writeFile(
+    path.join(bin, "bwrap"),
+    '#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n',
+    { mode: 0o755 }
+  );
+
+  const previousPath = process.env.PATH;
+
+  process.env.PATH = `${bin}:${previousPath}`;
+
+  const child = await startSession({
+    cwd: await childRepo(temporary, "child-fake-bwrap"),
+    modelId: "gpt-6.1-sol",
+    name: "child-fake-bwrap",
+    root: temporary,
+  });
+
+  try {
+    await child.turn(
+      [[["bash", { command: `echo x > ${escapePath}` }]]],
+      brief({ accept: "true", files: ["src/a.txt"], job: "check" }),
+      "STATUS: PASS"
+    );
+
+    assert.equal(existsSync(escapePath), false, "a fake bwrap let a write out");
+  } finally {
+    child.session.dispose();
+    process.env.PATH = previousPath;
     await rm(escapePath, { force: true });
   }
 });

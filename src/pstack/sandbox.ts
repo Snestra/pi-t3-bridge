@@ -18,7 +18,9 @@ const run = promisify(execFile);
 
 const SANDBOX = "/usr/bin/sandbox-exec";
 
-const BWRAP = "bwrap";
+// Only root can write these, unlike the mise and npm directories on PATH,
+// which a child can write, so a child cannot swap in a bwrap of its own.
+const BWRAP_PATHS = ["/usr/bin/bwrap", "/usr/local/bin/bwrap"];
 
 const PROBE_TIMEOUT_MS = 10_000;
 
@@ -29,7 +31,7 @@ const ProbeFailureSchema = Type.Object({
 });
 
 export type Sandbox =
-  | { kind: "bubblewrap" }
+  | { kind: "bubblewrap"; bwrap: string }
   | { kind: "off" }
   | { kind: "sandbox-exec" }
   | { kind: "unavailable"; reason: string };
@@ -105,11 +107,12 @@ const existing = (paths: readonly string[]): string[] => [
 // A read-only config also stops `git config`: its rename of config.lock over
 // config fails on the mount, so config.lock needs no bind of its own.
 const bwrapArgs = (
+  bwrap: string,
   command: string,
   workdir: string,
   gitDir: string | undefined
 ): string[] => [
-  BWRAP,
+  bwrap,
   "--ro-bind",
   "/",
   "/",
@@ -135,9 +138,9 @@ const bwrapArgs = (
 // One run of bwrap tells whether it is installed and may make the user
 // namespace it needs. Docker's default seccomp, Ubuntu 24.04's AppArmor
 // default, and WSL1 all stop it here.
-const probeBwrap = async (): Promise<string | undefined> => {
+const probeBwrap = async (bwrap: string): Promise<string | undefined> => {
   try {
-    await run(BWRAP, ["--ro-bind", "/", "/", "--", "/bin/true"], {
+    await run(bwrap, ["--ro-bind", "/", "/", "--", "/bin/true"], {
       timeout: PROBE_TIMEOUT_MS,
     });
 
@@ -145,9 +148,7 @@ const probeBwrap = async (): Promise<string | undefined> => {
   } catch (error) {
     const failed = Value.Check(ProbeFailureSchema, error) ? error : {};
 
-    return failed.code === "ENOENT"
-      ? "bwrap is not installed"
-      : `bwrap cannot start: ${(failed.stderr || failed.message || "no output").trim()}`;
+    return `bwrap cannot start: ${(failed.stderr || failed.message || "no output").trim()}`;
   }
 };
 
@@ -184,7 +185,16 @@ export const chooseSandbox = async (
     };
   }
 
-  const problem = await probeBwrap();
+  const bwrap = BWRAP_PATHS.find((candidate) => existsSync(candidate));
+
+  if (bwrap === undefined) {
+    return {
+      kind: "unavailable",
+      reason: `bwrap is not installed in ${BWRAP_PATHS.join(" or ")}`,
+    };
+  }
+
+  const problem = await probeBwrap(bwrap);
 
   if (problem !== undefined) {
     return { kind: "unavailable", reason: problem };
@@ -192,7 +202,7 @@ export const chooseSandbox = async (
 
   prepareBinds(gitDir);
 
-  return { kind: "bubblewrap" };
+  return { bwrap, kind: "bubblewrap" };
 };
 
 // Undefined when no sandbox runs: the caller must not run the command.
@@ -208,7 +218,9 @@ export const wrap = (
     }
 
     case "bubblewrap": {
-      return bwrapArgs(command, workdir, gitDir).map(quote).join(" ");
+      return bwrapArgs(sandbox.bwrap, command, workdir, gitDir)
+        .map(quote)
+        .join(" ");
     }
 
     case "off": {
