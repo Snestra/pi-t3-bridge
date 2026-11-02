@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { readConfig } from "../bridge/config.ts";

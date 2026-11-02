@@ -1,10 +1,10 @@
-import { Type } from "@earendil-works/pi-ai";
-import type { Static } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionContext,
   ExtensionToolContext,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import { classifyFailure } from "./failures.ts";

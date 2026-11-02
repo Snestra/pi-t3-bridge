@@ -1,5 +1,5 @@
-import { Type } from "@earendil-works/pi-ai";
-import type { Static, TSchema } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 
 const ResultEnvelopeSchema = Type.Object({

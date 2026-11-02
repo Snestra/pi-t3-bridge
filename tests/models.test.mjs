@@ -31,6 +31,10 @@ const piAi = await import(
   pathToFileURL(path.join(modulesRoot, "pi-ai/dist/index.js"))
 );
 
+const { Type } = await import(
+  pathToFileURL(path.join(modulesRoot, "../typebox/build/index.mjs"))
+);
+
 const liveCatalog = JSON.parse(
   await readFile(
     path.join(import.meta.dirname, "fixtures/t3-catalog.json"),
@@ -85,9 +89,9 @@ const delegateTool = (pi) => {
     },
     label: "delegate_task",
     name: "mcp__t3-code__delegate_task",
-    parameters: piAi.Type.Object({
-      target: piAi.Type.Optional(piAi.Type.Unknown()),
-      task: piAi.Type.String(),
+    parameters: Type.Object({
+      target: Type.Optional(Type.Unknown()),
+      task: Type.String(),
     }),
   });
 };
@@ -115,7 +119,7 @@ const catalogTool = (catalog, bridged) => (pi) => {
     exposure: "deferred",
     label: "orchestrator_capabilities",
     name: "mcp__t3-code__orchestrator_capabilities",
-    parameters: piAi.Type.Object({}),
+    parameters: Type.Object({}),
   });
 };
 

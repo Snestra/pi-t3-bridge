@@ -1,5 +1,5 @@
-import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 // The child's extension reads its limits from the delegation brief

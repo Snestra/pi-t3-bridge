@@ -9,8 +9,8 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { Type } from "@earendil-works/pi-ai";
-import type { Static } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 // Machine-wide bridge state, shared by every Pi session: which model families

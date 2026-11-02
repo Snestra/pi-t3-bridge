@@ -1,5 +1,5 @@
-import { Type } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 // Turns the session branch into the text the stop judge reads. The rendering

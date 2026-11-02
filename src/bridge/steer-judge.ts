@@ -1,14 +1,14 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { Type } from "@earendil-works/pi-ai";
 import type {
   ClassifierBoolQuestion,
   ClassifierContext,
   JsonObject,
-  Static,
 } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import type { MastExcerpt, StopInput } from "./steer-transcript.ts";

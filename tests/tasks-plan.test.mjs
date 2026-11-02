@@ -32,6 +32,10 @@ const piAi = await import(
   pathToFileURL(path.join(modulesRoot, "pi-ai/dist/index.js"))
 );
 
+const { Type } = await import(
+  pathToFileURL(path.join(modulesRoot, "../typebox/build/index.mjs"))
+);
+
 const temporary = await mkdtemp(path.join(tmpdir(), "pi-t3-bridge-tasks-"));
 const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
 const previousT3McpUrl = process.env.T3_MCP_URL;
@@ -79,7 +83,7 @@ const stubTools = (pi) => {
     },
     label: "delegate_stub",
     name: "delegate_stub",
-    parameters: piAi.Type.Object({ task: piAi.Type.String() }),
+    parameters: Type.Object({ task: Type.String() }),
   });
 
   pi.registerTool({
@@ -92,7 +96,7 @@ const stubTools = (pi) => {
       }),
     label: "lookup_stub",
     name: "lookup_stub",
-    parameters: piAi.Type.Object({}),
+    parameters: Type.Object({}),
   });
 };
 
@@ -110,10 +114,10 @@ const fakeHtmlRender = (calls) => (pi) => {
     exposure: "deferred",
     label: "html_render",
     name: "mcp__t3-code__html_render",
-    parameters: piAi.Type.Object({
-      height: piAi.Type.Number(),
-      html: piAi.Type.String(),
-      title: piAi.Type.String(),
+    parameters: Type.Object({
+      height: Type.Number(),
+      html: Type.String(),
+      title: Type.String(),
     }),
   });
 };

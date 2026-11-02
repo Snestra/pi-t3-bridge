@@ -1,5 +1,4 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Type } from "@earendil-works/pi-ai";
 import type {
   AgentBeforeSettleEvent,
   BoundaryResult,
@@ -7,6 +6,7 @@ import type {
   ExtensionContext,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { Value } from "typebox/value";
 
 import { TERMINAL_STATUSES } from "./accounts.ts";

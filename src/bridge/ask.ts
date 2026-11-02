@@ -1,11 +1,11 @@
-import { Type } from "@earendil-works/pi-ai";
-import type { Static } from "@earendil-works/pi-ai";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
   ExtensionUIContext,
   ExtensionUIDialogOptions,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static } from "typebox";
 import { Value } from "typebox/value";
 
 import { registerUnlessTaken } from "./claim.ts";

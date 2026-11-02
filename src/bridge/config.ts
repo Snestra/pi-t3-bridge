@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { Type } from "@earendil-works/pi-ai";
-import type { Static, TSchema } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+import type { Static, TSchema } from "typebox";
 import { Value } from "typebox/value";
 
 // The bridge's settings, one JSON file per machine. Each key is checked on its

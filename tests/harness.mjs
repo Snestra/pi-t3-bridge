@@ -30,6 +30,10 @@ export const piAi = await import(
   pathToFileURL(path.join(modulesRoot, "pi-ai/dist/index.js"))
 );
 
+const { Type } = await import(
+  pathToFileURL(path.join(modulesRoot, "../typebox/build/index.mjs"))
+);
+
 const { Value } = await import(
   pathToFileURL(path.join(modulesRoot, "../typebox/build/value/index.mjs"))
 );
@@ -45,9 +49,7 @@ export const textResult = (value) =>
   Promise.resolve({
     content: [
       {
-        text: Value.Check(piAi.Type.String(), value)
-          ? value
-          : JSON.stringify(value),
+        text: Value.Check(Type.String(), value) ? value : JSON.stringify(value),
         type: "text",
       },
     ],
@@ -62,7 +64,7 @@ export const fakeT3 = (world) => (pi) => {
     exposure: "deferred",
     label: "orchestrator_capabilities",
     name: "mcp__t3-code__orchestrator_capabilities",
-    parameters: piAi.Type.Object({}),
+    parameters: Type.Object({}),
   });
 
   pi.registerTool({
@@ -82,11 +84,11 @@ export const fakeT3 = (world) => (pi) => {
     },
     label: "delegate_task",
     name: "mcp__t3-code__delegate_task",
-    parameters: piAi.Type.Object({
-      isolation: piAi.Type.Optional(piAi.Type.String()),
-      mode: piAi.Type.Optional(piAi.Type.String()),
-      target: piAi.Type.Optional(piAi.Type.Unknown()),
-      task: piAi.Type.String(),
+    parameters: Type.Object({
+      isolation: Type.Optional(Type.String()),
+      mode: Type.Optional(Type.String()),
+      target: Type.Optional(Type.Unknown()),
+      task: Type.String(),
     }),
   });
 
@@ -95,7 +97,7 @@ export const fakeT3 = (world) => (pi) => {
     execute: () => textResult(world.taskStatus ?? { status: "running" }),
     label: "task_status",
     name: "mcp__t3-code__task_status",
-    parameters: piAi.Type.Object({ taskId: piAi.Type.String() }),
+    parameters: Type.Object({ taskId: Type.String() }),
   });
 
   pi.registerTool({
@@ -107,9 +109,9 @@ export const fakeT3 = (world) => (pi) => {
     },
     label: "t3_thread_send",
     name: "mcp__t3-code__t3_thread_send",
-    parameters: piAi.Type.Object({
-      message: piAi.Type.String(),
-      threadId: piAi.Type.String(),
+    parameters: Type.Object({
+      message: Type.String(),
+      threadId: Type.String(),
     }),
   });
 
@@ -144,12 +146,12 @@ export const fakeT3 = (world) => (pi) => {
     exposure: "deferred",
     label: "t3_thread_read",
     name: "mcp__t3-code__t3_thread_read",
-    parameters: piAi.Type.Object({
-      afterPosition: piAi.Type.Optional(piAi.Type.Number()),
-      limit: piAi.Type.Optional(piAi.Type.Number()),
-      maxCharsPerItem: piAi.Type.Optional(piAi.Type.Number()),
-      threadId: piAi.Type.String(),
-      view: piAi.Type.Optional(piAi.Type.String()),
+    parameters: Type.Object({
+      afterPosition: Type.Optional(Type.Number()),
+      limit: Type.Optional(Type.Number()),
+      maxCharsPerItem: Type.Optional(Type.Number()),
+      threadId: Type.String(),
+      view: Type.Optional(Type.String()),
     }),
   });
 };
@@ -308,9 +310,7 @@ export const startSession = async ({
           { stopReason: "toolUse" }
         )
       ),
-      Value.Check(piAi.Type.String(), end)
-        ? piAi.fauxAssistantMessage(end)
-        : end,
+      Value.Check(Type.String(), end) ? piAi.fauxAssistantMessage(end) : end,
     ]);
     await session.prompt(prompt);
 
