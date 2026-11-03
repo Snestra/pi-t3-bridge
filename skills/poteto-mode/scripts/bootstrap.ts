@@ -52,10 +52,15 @@ function install(directory: string, commanderPackagePath: string): void {
   }
   try {
     renameSync(staging, directory);
-  } catch (error) {
-    rmSync(staging, { recursive: true, force: true });
-    if (!existsSync(directory)) throw error;
+  } catch {
+    // A run that finished first keeps its install. A key directory without
+    // commander, as a node_modules cleaner leaves it, is replaced.
+    if (!existsSync(commanderPackagePath)) {
+      rmSync(directory, { recursive: true, force: true });
+      renameSync(staging, directory);
+    }
   }
+  rmSync(staging, { recursive: true, force: true });
   if (!existsSync(commanderPackagePath)) {
     throw new Error(
       "bun install --frozen-lockfile completed without installing commander"
