@@ -1,6 +1,6 @@
 {
   "name": "t3-pstack",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "pstack for T3 Code on a Codex host: Lauren Tan's pstack with its Cursor mechanics rewritten in place for T3, so subagents, panels, schedules, and PR watches dispatch through T3's orchestration.",
   "author": {
     "name": "Christian Bager Bach Houmann",
