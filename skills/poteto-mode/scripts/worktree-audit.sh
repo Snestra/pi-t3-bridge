@@ -39,8 +39,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || { echo "error: not a git repo: $repo"
 main_wt=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 
 if [ -z "$base" ]; then
-	for cand in "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" origin/main origin/master; do
-		[ -n "$cand" ] && git rev-parse --verify --quiet "$cand^{commit}" >/dev/null && { base="$cand"; break; }
+	origin_head=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)
+	for cand in "${origin_head#refs/remotes/}" origin/main origin/master; do
+		[ -n "$cand" ] && git rev-parse --verify --quiet "refs/remotes/$cand^{commit}" >/dev/null && { base="$cand"; break; }
 	done
 	[ -z "$base" ] && { echo "error: no base ref (origin/HEAD, origin/main, origin/master all missing); pass -b <ref>" >&2; exit 1; }
 	echo "warn: no -b given; MERGED checks against $base" >&2
@@ -55,7 +56,10 @@ if [ -n "$fetch" ]; then
 		|| echo "warn: could not fetch $base; merged column may be stale" >&2 ;;
 	esac
 fi
-git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1 \
+# A local branch or tag named origin/main wins git's shorthand lookup over
+# refs/remotes/origin/main, so every origin/* ref is read by its full name.
+case "$base" in origin/*) base_ref="refs/remotes/$base" ;; *) base_ref="$base" ;; esac
+git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null 2>&1 \
 	|| { echo "error: base ref not found: $base; --fetch fetches an origin/* base" >&2; exit 1; }
 
 disposable='(\.build|\.cache|\.dart_tool|\.DS_Store|\.gradle|\.lake|\.lycheecache|\.mypy_cache|\.next|\.nuxt'
@@ -106,7 +110,7 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while
 
 	# Squash-merged branches are not ancestors of the base, so PR state is the
 	# real signal; merge-base only catches fast-forward/rebase merges.
-	git merge-base --is-ancestor "$head" "$base" 2>/dev/null && merged=YES || merged=no
+	git merge-base --is-ancestor "$head" "$base_ref" 2>/dev/null && merged=YES || merged=no
 
 	# `git worktree remove` deletes ignored files without asking, and a .env or
 	# .claude/settings.local.json may exist nowhere else. An explicit
@@ -134,13 +138,16 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while
 	branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")
 	if [ -z "$branch" ]; then remote=detached
 	elif git -C "$wt" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-		[ "$(git -C "$wt" rev-parse "origin/$branch" 2>/dev/null)" = "$head" ] \
+		[ "$(git -C "$wt" rev-parse "refs/remotes/origin/$branch" 2>/dev/null)" = "$head" ] \
 			&& remote=pushed \
-			|| remote="ahead$(git -C "$wt" rev-list --count "origin/$branch..HEAD" 2>/dev/null)"
+			|| remote="ahead$(git -C "$wt" rev-list --count "refs/remotes/origin/$branch..HEAD" 2>/dev/null)"
 	else remote=no-remote; fi
 
-	pr=$([ -n "$branch" ] && jq -r --arg b "$branch" \
-		'.[] | select(.head==$b) | "#\(.number)/\(.state)"' "$prs" 2>/dev/null | head -1)
+	# PRs come newest first, so a newer closed or merged PR for the branch
+	# would hide an older one that is still open. An open record wins.
+	pr=$([ -n "$branch" ] && jq -r --arg b "$branch" '[.[] | select(.head==$b)]
+		| (map(select(.state=="open" or .state=="draft")) + .)[0] // empty
+		| "#\(.number)/\(.state)"' "$prs" 2>/dev/null)
 	[ -z "$pr" ] && pr="-"
 
 	# Most recent chat whose transcript operated in this worktree. Match path
