@@ -57,8 +57,12 @@ if [ -n "$fetch" ]; then
 	esac
 fi
 # A local branch or tag named origin/main wins git's shorthand lookup over
-# refs/remotes/origin/main, so every origin/* ref is read by its full name.
-case "$base" in origin/*) base_ref="refs/remotes/$base" ;; *) base_ref="$base" ;; esac
+# refs/remotes/origin/main, so a base under a remote's name is read by its
+# full name.
+base_ref="$base"
+while IFS= read -r name; do
+	case "$base" in "$name"/*) base_ref="refs/remotes/$base" ;; esac
+done < <(git remote)
 git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null 2>&1 \
 	|| { echo "error: base ref not found: $base; --fetch fetches an origin/* base" >&2; exit 1; }
 
@@ -135,7 +139,8 @@ git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while
 	[ "$reflog_only" != 0 ] && dirty="${dirty:+$dirty,}reflog:$reflog_only"
 	[ -z "$dirty" ] && dirty=clean
 
-	branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")
+	branch=$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null || echo "")
+	branch=${branch#refs/heads/}
 	if [ -z "$branch" ]; then remote=detached
 	elif git -C "$wt" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
 		[ "$(git -C "$wt" rev-parse "refs/remotes/origin/$branch" 2>/dev/null)" = "$head" ] \
