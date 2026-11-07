@@ -26,7 +26,7 @@ Open a todolist with one entry per phase before launching anything.
 
 Spawn all N workers in one response as `delegate_task` calls with `mode: "async"` and the step 3 `target`, left unset for `auto` or `inherit-parent`. Every worker runs on this machine, so a worker that writes gets `isolation: "worktree"`, per poteto-mode's Dispatch on T3.
 
-When a worker must start from a non-default branch, its brief names that branch's head commit, and the worker runs `git checkout --detach <sha>` in its own worktree before anything else.
+When a worker must start from a non-default branch, it gets `isolation: "worktree"` too, its brief names that branch's head commit, and it runs `git reset --hard <sha>` in that worktree before anything else.
 
 Every brief stands alone. Include the goal, scope, exact slice or race arm, how to verify, and what to report. Reports use `PASS`, `ISSUES`, or `BLOCKED` with evidence. A worker that can prove a defect reports `ISSUES` and lists every issue it can prove, not only the first.
 
