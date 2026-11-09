@@ -6,6 +6,8 @@ import { compile, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
 import type { Classified } from "./failures.ts";
+import { GoalIdentitySchema, matchesGoal, readGoal } from "./goal.ts";
+import type { GoalIdentity } from "./goal.ts";
 import { callT3Tool, insideT3 } from "./t3-http.ts";
 
 // When the orchestrator's own account runs out, nothing is left to call a
@@ -25,6 +27,7 @@ const MARKER = /\[pi-t3-resume (?<marker>[\w-]+)\]/u;
 
 const ResumeSchema = obj(
   {
+    goal: opt(GoalIdentitySchema),
     marker: str(),
     scheduledTaskId: opt(str()),
     state: oneOf(["scheduled", "done"]),
@@ -61,13 +64,23 @@ const pending = (ctx: ExtensionContext) => {
   );
 };
 
+export const pendingGoalResume = (
+  ctx: ExtensionContext,
+  goal: GoalIdentity
+): boolean =>
+  pending(ctx).some(
+    (entry) =>
+      entry.goal?.id === goal.id && entry.goal.revision === goal.revision
+  );
+
 const twoDigits = (value: number): string => String(value).padStart(2, "0");
 
 export const scheduleResume = async (
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   modelFamily: string,
-  failure: Classified
+  failure: Classified,
+  identity?: GoalIdentity
 ): Promise<void> => {
   if (!insideT3() || pending(ctx).length > 0) {
     return;
@@ -96,6 +109,7 @@ export const scheduleResume = async (
     });
 
     const scheduled: Static<typeof ResumeSchema> = {
+      goal: identity,
       marker,
       state: "scheduled",
     };
@@ -122,7 +136,66 @@ export const scheduleResume = async (
   }
 };
 
-export const registerResume = (pi: ExtensionAPI): void => {
+export const registerResume = (
+  pi: ExtensionAPI,
+  canRecover?: (ctx: ExtensionContext) => boolean
+): void => {
+  const retire = async (entry: Static<typeof ResumeSchema>): Promise<void> => {
+    pi.appendEntry(RESUME_ENTRY, { marker: entry.marker, state: "done" });
+
+    if (entry.scheduledTaskId !== undefined) {
+      await callT3Tool("delete_scheduled_task", {
+        scheduledTaskId: entry.scheduledTaskId,
+      }).catch(() => null);
+    }
+  };
+
+  pi.on("input", async (event, ctx) => {
+    const marker = MARKER.exec(event.text)?.[1];
+
+    const entry = resumes(ctx).find(
+      (candidate) =>
+        candidate.marker === marker && candidate.state === "scheduled"
+    );
+
+    if (entry?.goal === undefined) {
+      return;
+    }
+
+    const wasPending = pending(ctx).some(
+      (candidate) => candidate.marker === marker
+    );
+
+    if (wasPending) {
+      await retire(entry);
+    }
+
+    try {
+      const goal = readGoal(ctx);
+
+      if (
+        wasPending &&
+        goal?.status === "active" &&
+        matchesGoal(goal, entry.goal) &&
+        canRecover?.(ctx) === true
+      ) {
+        pi.sendMessage(
+          {
+            content: `Account recovery for saved goal ${goal.id}, revision ${goal.revision}. Read get_goal and continue only if this goal is still active.\n${goal.objective}`,
+            customType: "pi-t3-goal-recovery",
+            display: true,
+          },
+          { triggerTurn: true }
+        );
+      }
+    } catch {
+      // Invalid goal state must not turn an old recovery into a user prompt.
+      return { action: "handled" };
+    }
+
+    return { action: "handled" };
+  });
+
   pi.on("before_agent_start", async (event, ctx) => {
     const marker = MARKER.exec(
       event.messageType === "user" ? event.prompt : ""
@@ -138,12 +211,6 @@ export const registerResume = (pi: ExtensionAPI): void => {
       return;
     }
 
-    pi.appendEntry(RESUME_ENTRY, { marker, state: "done" });
-
-    if (entry.scheduledTaskId !== undefined) {
-      await callT3Tool("delete_scheduled_task", {
-        scheduledTaskId: entry.scheduledTaskId,
-      }).catch(() => null);
-    }
+    await retire(entry);
   });
 };

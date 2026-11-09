@@ -19,6 +19,7 @@ import type { Static } from "@earendil-works/pi-schema";
 
 import { classifyFailure } from "./failures.ts";
 import type { Classified } from "./failures.ts";
+import type { GoalIdentity } from "./goal.ts";
 import { scheduleResume } from "./resume.ts";
 import { readFamilies, updateFamily } from "./state.ts";
 import type { FamilyRecord } from "./state.ts";
@@ -421,7 +422,10 @@ const parseFamily = (
   return name;
 };
 
-export const registerAccounts = (pi: ExtensionAPI): void => {
+export const registerAccounts = (
+  pi: ExtensionAPI,
+  goalForRun?: (ctx: ExtensionContext) => GoalIdentity | undefined
+): void => {
   // A finished child settles its family's mark as soon as the parent reads its
   // status: a usage limit marks the family out, and a clean finish ends a probe.
   pi.on("tool_result", async (event, ctx) => {
@@ -500,11 +504,12 @@ export const registerAccounts = (pi: ExtensionAPI): void => {
     | {
         readonly family: string;
         readonly kind: "failed";
+        readonly goal: GoalIdentity | undefined;
         readonly message: string;
       }
     | undefined;
 
-  pi.on("agent_end", (event) => {
+  pi.on("agent_end", (event, ctx) => {
     // SAFETY: only reads `role`, which every agent message carries.
     const last = event.messages.findLast(
       (message) => (message as { role?: string }).role === "assistant"
@@ -515,6 +520,7 @@ export const registerAccounts = (pi: ExtensionAPI): void => {
     } else if (last.stopReason === "error") {
       lastRun = {
         family: family(last.model),
+        goal: goalForRun?.(ctx),
         kind: "failed",
         message: last.errorMessage ?? "",
       };
@@ -548,7 +554,7 @@ export const registerAccounts = (pi: ExtensionAPI): void => {
     recordFailure(run.family, classified, "delegate");
 
     if (classified.kind !== "other" && !(await isDelegatedChild())) {
-      await scheduleResume(pi, ctx, run.family, classified);
+      await scheduleResume(pi, ctx, run.family, classified, run.goal);
     }
   });
 
