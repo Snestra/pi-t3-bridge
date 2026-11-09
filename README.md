@@ -113,10 +113,50 @@ The bridge gives Pi the tools and commands that T3 Code expects, and it shows th
 | `plan` | tool | Shows a plan card with Approve, Revise, and Cancel buttons. |
 | `ask` | tool | Asks you one or more questions as cards and waits for your answers. |
 | `transcript` | tool | Returns the session file and session ID, for workflows that read the transcript. |
+| `get_goal` | tool | Reads the saved goal, its revision, and its evidence. |
+| `update_goal` | tool | Reports completion or a blocker for the current active goal. |
+| `/goal` | command | Saves, inspects, edits, pauses, resumes, or clears one goal on the current session branch. |
 | `/t3-usage` | command | Shows the cost of the thread and its children, the cache hit rate, and which model families are out of usage. |
 | `/t3-transcript` | command | Records the transcript reference and shows the session file path. |
 | `/t3-exhausted <family> [reset time]` | command | Marks a model family as out of usage for every chat on the machine. |
 | `/t3-recovered <family>` | command | Marks a model family as usable again for every chat on the machine. |
+
+### Saved goals
+
+`/goal <objective>` saves one objective and starts work. The bridge requests another response when the agent stops before completing the objective. Goals have no token or time budget. Existing permissions still apply.
+
+| Command | Result |
+| --- | --- |
+| `/goal` | Shows the objective, status, and reason without a model request. |
+| `/goal <objective>` | Starts a new goal when no unfinished goal exists. |
+| `/goal -- <objective>` | Starts a goal whose first word is `edit`, `pause`, `resume`, or `clear`. |
+| `/goal edit <objective>` | Changes an unfinished goal and invalidates its old completion evidence. |
+| `/goal pause` | Saves paused state before aborting goal work. |
+| `/goal resume` | Activates a paused or blocked goal. Repeating the command does not start duplicate work. |
+| `/goal clear` | Clears the goal and stops its work without deleting conversation history. |
+
+In T3, use **Stop** during work, then send goal commands while the thread is idle. T3 rejects live goal commands before Pi receives them. Pi terminal and direct RPC sessions accept goal commands during work.
+
+```text
+active
+  completion evidence       complete
+  reported blocker          blocked
+  Stop or restored session  paused
+paused or blocked
+  /goal resume              active
+any state
+  /goal clear               no goal
+```
+
+Goals live in `pi-t3-goal` session entries, not a machine-wide database. Each snapshot stores `version: 1` and either `goal: null` or an objective with its ID, revision, status, reason, and evidence. Loading, reloading, cloning, or navigating a session pauses a restored active goal. Compaction preserves the current state. Only an explicit resume command reactivates a paused goal.
+
+Approval gates, unanswered questions, and pending children hold automatic continuation. A question dismissal or timeout needs a new user answer. A child wake or account recovery does not count as that answer. Goal-owned runs do not receive competing stop reminders, but MAST observations still run.
+
+`update_goal` requires `goalId`, `revision`, `status`, `reason`, and `evidence`. The model can set only `complete` or `blocked` on an active goal. Completion requires evidence records with `requirement`, `source`, and `result`. A blocker requires a reason. The model is instructed to wait for three consecutive cycles with the same blocker. Runtime failures can stop work immediately.
+
+The bridge rejects stale updates and incompatible goal tools. Account recovery records the failed run's goal identity and revision, so an old recovery cannot reactivate an edited, paused, completed, or cleared goal. Invalid saved goal data disables goal work until `/goal clear`.
+
+Evidence records make completion inspectable. They do not prove that an arbitrary objective is complete. The feature assumes one Pi process owns the session file and does not promise exactly-once work across crashes. It does not add goal queues, automatic delegation, or model-created goals.
 
 ### Plan mode
 

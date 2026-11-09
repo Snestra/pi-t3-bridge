@@ -175,7 +175,7 @@ const userText = (entry: SessionEntry): string =>
 // still runs. A delegate call made inside a codemode script shows only as a
 // nested call with no task ID, so it counts until the prompt ends, unless its
 // mode is "wait".
-const waitingOnChild = (ctx: ExtensionContext): boolean => {
+export const waitingOnChild = (ctx: ExtensionContext): boolean => {
   const branch = ctx.sessionManager.getBranch();
   const running = new Set<string>();
 
@@ -288,7 +288,10 @@ const judgeSignal = (ctx: ExtensionContext): AbortSignal =>
     ...(ctx.signal ? [ctx.signal] : []),
   ]);
 
-export const registerSteer = (pi: ExtensionAPI): void => {
+export const registerSteer = (
+  pi: ExtensionAPI,
+  goalOwnsRun: () => boolean = () => false
+): void => {
   let rule: string | undefined;
   let warned = false;
 
@@ -442,7 +445,10 @@ export const registerSteer = (pi: ExtensionAPI): void => {
       : undefined;
   });
 
-  pi.on("agent_before_settle", async (event, ctx) => {
+  const beforeSettle = async (
+    event: AgentBeforeSettleEvent,
+    ctx: ExtensionContext
+  ): Promise<BoundaryResult | undefined> => {
     const mode = steerMode();
 
     // An error outcome is left to accounts.ts, which schedules the resume.
@@ -501,6 +507,10 @@ export const registerSteer = (pi: ExtensionAPI): void => {
       return;
     }
 
+    if (goalOwnsRun()) {
+      return;
+    }
+
     const chosen = chooseNudge(ctx, verdict);
 
     const capped =
@@ -511,5 +521,9 @@ export const registerSteer = (pi: ExtensionAPI): void => {
     appendSteerLog({ ...base, capped, kind: "stop", nudged, verdict });
 
     return nudged ? nudge(event, chosen.kind, chosen.probability) : undefined;
-  });
+  };
+
+  pi.on("agent_before_settle", (event, ctx) =>
+    goalOwnsRun() ? undefined : beforeSettle(event, ctx)
+  );
 };

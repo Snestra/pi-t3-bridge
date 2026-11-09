@@ -97,8 +97,16 @@ test("the bridge loads and registers its tools with no pstack files", async () =
         .map((command) => command.name)
         .toSorted();
 
-      assert.deepEqual(tools, ["ask", "plan", "tasks", "transcript"]);
+      assert.deepEqual(tools, [
+        "ask",
+        "get_goal",
+        "plan",
+        "tasks",
+        "transcript",
+        "update_goal",
+      ]);
       assert.deepEqual(commands, [
+        "goal",
         "t3-exhausted",
         "t3-recovered",
         "t3-transcript",

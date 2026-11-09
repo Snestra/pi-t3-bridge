@@ -93,6 +93,9 @@ const currentGate = (ctx: ExtensionContext): PlanGate => {
   return OPEN_GATE;
 };
 
+export const planBlocked = (ctx: ExtensionContext): boolean =>
+  BLOCK_REASONS[currentGate(ctx).state] !== undefined;
+
 const isPlanChoice = (value: string | undefined): value is PlanChoice =>
   PLAN_CHOICES.some((choice) => choice === value);
 
