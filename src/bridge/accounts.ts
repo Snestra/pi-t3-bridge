@@ -213,14 +213,18 @@ const markOut = (
   modelFamily: string,
   failure: FamilyOut,
   source: ExhaustedRecord["source"]
-): Promise<void> =>
-  updateFamily(modelFamily, () => ({
+): Promise<void> => {
+  // Taken now, when the failure was seen, not once the lock is free.
+  const since = new Date().toISOString();
+
+  return updateFamily(modelFamily, () => ({
     reason: failure.kind,
     resetAt: failure.resetAt,
-    since: new Date().toISOString(),
+    since,
     source,
     state: "exhausted",
   }));
+};
 
 const ThreadReadSchema = obj(
   {
@@ -298,10 +302,7 @@ const childFailure = async (
 
     for (const item of page.items) {
       if (item.type === "error") {
-        failure = worse(
-          failure,
-          classifyFailure({ message: item.text ?? "", title: item.title })
-        );
+        failure = worse(failure, classifyFailure({ message: item.text ?? "" }));
       }
     }
 

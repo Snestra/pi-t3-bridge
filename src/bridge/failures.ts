@@ -5,7 +5,6 @@
 
 interface Failure {
   readonly message: string;
-  readonly title?: string | null;
 }
 
 // A failure that holds its family out names when the family opens again.
@@ -14,8 +13,6 @@ export type Classified =
   | { readonly kind: "exhausted" | "unhealthy"; readonly resetAt: string };
 
 export type FamilyOut = Exclude<Classified, { readonly kind: "other" }>;
-
-const USAGE_LIMIT_TITLE = "Usage limit reached";
 
 // A usage limit that names no reset time, or one the user reported without
 // one, holds the family out this long, and the resume waits as long. The next
@@ -70,7 +67,7 @@ export const classifyFailure = (
   failure: Failure,
   now = Date.now()
 ): Classified => {
-  if (failure.title === USAGE_LIMIT_TITLE || EXHAUSTED.test(failure.message)) {
+  if (EXHAUSTED.test(failure.message)) {
     return {
       kind: "exhausted",
       resetAt: resetFrom(failure, now) ?? iso(now + NO_RESET_MS),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
@@ -200,10 +200,11 @@ const resolve = async ({ roles, ...options }) => {
   });
 };
 
+// A real sheet as a user wrote it, with named panels and auto roles.
 const SHEET = await readFile(
-  path.join(homedir(), ".config/pi-t3-bridge/models.md"),
+  path.join(import.meta.dirname, "fixtures/models-sheet.txt"),
   "utf-8"
-).catch(() => "");
+);
 
 const onPi = (model, thinking) => ({
   model: `cliproxyapi/${model}`,
@@ -386,7 +387,7 @@ test("a single role with no runnable model runs on the parent", async () => {
   assert.equal(single.kind, "inherit-parent");
 });
 
-test("every role in the user's current sheet resolves on the live catalog", async () => {
+test("every role in a user's sheet resolves on the live catalog", async () => {
   const results = await resolve({
     name: "user-sheet",
     roles: policy.roles.map((role) => role.role),

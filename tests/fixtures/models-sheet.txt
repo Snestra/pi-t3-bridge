@@ -1,0 +1,21 @@
+# pstack model configuration (T3). One line per role. Delete a line to fall back to the skill default.
+# With a job and size, pstack_model uses the routing table in models.json. `inherit-parent` or `auto` lets the table decide, or routes within the parent chat's family by complexity when no job is given. A named model is used as written.
+# budget: medium (low, medium, or high by job complexity)
+feature, refactoring: auto
+bug-fix: auto
+perf-issue: auto
+hillclimb: auto
+judgment and prose: auto
+hardest tasks: pi/cliproxyapi/claude-opus-5-5
+how explorer: auto
+how explainer: auto
+why investigators: auto
+why synthesizer: auto
+reflect tooling: auto
+reflect judgment, divergent, synthesizer: auto
+arena runners: pi/cliproxyapi/claude-opus-5-5, pi/cliproxyapi/gpt-6.1-sol, pi/cliproxyapi/kimi-k3.1-pro, pi/cliproxyapi/grok-4.7-build-fast
+arena cross-judge pool: pi/cliproxyapi/claude-opus-5-5, pi/cliproxyapi/gpt-6.1-sol, pi/cliproxyapi/kimi-k3.1-pro, pi/cliproxyapi/grok-4.7-build-fast
+swarm workers: auto
+architect runners: pi/cliproxyapi/claude-opus-5-5, pi/cliproxyapi/gpt-6-astra, pi/cliproxyapi/kimi-k3.1-pro, pi/cliproxyapi/grok-4.7-build-fast
+interrogate reviewers: pi/cliproxyapi/claude-opus-5-5, pi/cliproxyapi/gpt-6.1-sol, pi/cliproxyapi/kimi-k3.1-pro, pi/cliproxyapi/grok-4.7-build-fast
+session hook: on

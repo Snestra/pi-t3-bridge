@@ -38,7 +38,8 @@
       "failure": {
         "message": "Bad Gateway"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
@@ -62,19 +63,22 @@
       "failure": {
         "message": "The backend is temporarily overloaded. Please retry."
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "The provider could not start this turn. Retry the turn; if it keeps failing, check the provider setup and server logs."
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "WebSocket error"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
@@ -94,55 +98,64 @@
       "failure": {
         "message": "You have hit your ChatGPT usage limit."
       },
-      "kind": "exhausted"
+      "kind": "exhausted",
+      "resetInSeconds": 3600
     },
     {
       "failure": {
         "message": "auth_unavailable: no auth available (providers=claude, model=claude-opus-5-5; last upstream error: empty_stream: upstream stream closed before first payload); check Claude auth/key session and cooldown state via /v0/management/auth-files"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "auth_unavailable: no auth available (providers=codex, model=gpt-6-luna; last upstream error: websocket: close 1012)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "auth_unavailable: no auth available (providers=codex, model=gpt-6.1-sol; last upstream error: server_is_overloaded: Our servers are currently overloaded. Please try again later.)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "auth_unavailable: no auth available (providers=codex, model=gpt-6.1-sol; last upstream error: websocket: close 1012)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "auth_unavailable: no auth available (providers=meta, model=muse-spark-1.3; last upstream error: service_overloaded: The backend is temporarily overloaded. Please retry.)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "auth_unavailable: no auth available (providers=meta, model=muse-wonder-full-1.0; last upstream error: gateway_timeout: The response stream did not start before the server timeout.)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "fetch failed"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
         "message": "network error: Codex error: stream error: stream disconnected before completion: stream closed before response.completed"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
@@ -160,7 +173,8 @@
       "failure": {
         "message": "The provider event stream closed unexpectedly. Retry the turn; if it keeps failing, check the provider and server logs."
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
