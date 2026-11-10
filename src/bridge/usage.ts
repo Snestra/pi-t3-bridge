@@ -144,7 +144,6 @@ const usageText = (ctx: ExtensionContext): string => {
 };
 
 export const registerUsage = (pi: ExtensionAPI): void => {
-  // A delegated child records what it cost, so its parent can report it.
   pi.on("message_end", async (event, ctx) => {
     const { message } = event;
 

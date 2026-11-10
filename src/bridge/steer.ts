@@ -106,8 +106,6 @@ const atLimit = (ctx: ExtensionContext, group: NudgeGroup): boolean => {
   );
 };
 
-// Whether the newest note this feature added in the prompt, of either kind,
-// is a stop nudge.
 const lastNoteIsStopNudge = (ctx: ExtensionContext): boolean => {
   const branch = ctx.sessionManager.getBranch();
 
@@ -203,7 +201,6 @@ const tell = (
   }
 };
 
-// Cancelling the run cancels the judge too.
 const judgeSignal = (ctx: ExtensionContext): AbortSignal =>
   AbortSignal.any([
     AbortSignal.timeout(JUDGE_TIMEOUT_MS),
@@ -241,7 +238,6 @@ export const registerSteer = (
     }
   };
 
-  // MAST state, per prompt.
   let armed = new Set<string>();
   let turn = 0;
   let scopeFrom: number | undefined;

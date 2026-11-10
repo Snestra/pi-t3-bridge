@@ -43,7 +43,6 @@ export const ownThreadId = async (): Promise<string | null> => {
 const isDelegated = (threadId: string): boolean =>
   threadId.startsWith(DELEGATED_THREAD);
 
-// Whether this session runs a task another T3 thread delegated to it.
 export const isDelegatedChild = async (): Promise<boolean> => {
   const threadId = await ownThreadId();
 

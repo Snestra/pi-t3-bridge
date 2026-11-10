@@ -56,8 +56,8 @@ const listItems = (section: string | undefined): string[] =>
 
       // A bullet may list several paths. Every token with a slash or a glob
       // counts, so "a/** and b/c.ts" writes both. A bullet with no such
-      // token keeps only its first word, which stays the old behavior for
-      // plain file names.
+      // token is a plain file name followed by prose, so only its first
+      // word counts.
       const tokens = item
         .replaceAll("`", "")
         .trim()
@@ -286,7 +286,6 @@ const firstMessage = (
   };
 };
 
-// The brief that started this session, when it is a delegated child.
 export const sessionBrief = (
   ctx: ExtensionContext
 ): { readonly brief: Brief; readonly startedAt: number } | undefined => {

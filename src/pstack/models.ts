@@ -231,7 +231,6 @@ const placeEntry = (
   return undefined;
 };
 
-// A routed model, preferring the parent's own provider.
 const placeModel = (
   model: string,
   reasoning: string,

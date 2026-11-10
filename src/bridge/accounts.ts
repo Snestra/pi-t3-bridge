@@ -141,7 +141,6 @@ const accountEvents = (ctx: ExtensionContext): AccountEvent[] =>
         : []
     );
 
-// Every child this session delegated, oldest first.
 export const delegatedChildren = (ctx: ExtensionContext): string[] =>
   accountEvents(ctx).flatMap((event) =>
     event.kind === "delegated" ? [event.childThreadId] : []

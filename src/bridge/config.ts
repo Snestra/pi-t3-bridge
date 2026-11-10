@@ -125,7 +125,6 @@ const load = (): Loaded => {
 
 export const readConfig = (): Config => load().config;
 
-// A file the bridge cannot use is reported once per session, not per prompt.
 export const registerConfig = (pi: ExtensionAPI): void => {
   let warned = false;
 
