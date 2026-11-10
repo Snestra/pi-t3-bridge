@@ -4,11 +4,8 @@ import { registerChild } from "./src/pstack/child.ts";
 import { registerModelRouting } from "./src/pstack/models.ts";
 import { pstackPaths } from "./src/pstack/resources.ts";
 import { registerResults } from "./src/pstack/results.ts";
-import {
-  moveOldSheet,
-  sessionGuidance,
-  sessionHookEnabled,
-} from "./src/pstack/session.ts";
+import { sessionGuidance } from "./src/pstack/session.ts";
+import { moveOldSheet, sessionHookEnabled } from "./src/pstack/sheet.ts";
 
 // pstack's skills on top of the bridge in bridge.ts: their catalog and session
 // guidance, model routing, and the rules for a delegated brief.

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
@@ -36,7 +34,7 @@ import { findT3Tool, isT3Tool } from "../bridge/t3-tasks.ts";
 import type { Size } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import type { Policy } from "./resources.ts";
-import { modelSheetPath } from "./session.ts";
+import { readSheet } from "./sheet.ts";
 
 const OptionValueSchema = union([str(), bool()]);
 
@@ -639,14 +637,6 @@ const resolveRole = (
   }
 
   return resolveSingle(role, configured[0] ?? null, complexity, context);
-};
-
-const readSheet = (): string => {
-  try {
-    return readFileSync(modelSheetPath(), "utf-8");
-  } catch {
-    return "";
-  }
 };
 
 const readCatalog = async (ctx: ExtensionToolContext): Promise<Catalog> => {
