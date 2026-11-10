@@ -113,7 +113,7 @@ const pageHtml = (title: string, body: string): string =>
 const frameHeight = (estimate: number): number =>
   Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.ceil(estimate)));
 
-export interface InlineCard {
+interface InlineCard {
   readonly height: number;
   readonly html: string;
   readonly title: string;

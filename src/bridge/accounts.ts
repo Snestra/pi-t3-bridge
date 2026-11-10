@@ -404,7 +404,7 @@ type LastRun =
       readonly message: string;
     };
 
-export interface Accounts {
+interface Accounts {
   // Records how the session's last run ended. bridge.ts runs it before the
   // goal settles, so a scheduled resume holds the goal open.
   readonly settle: (

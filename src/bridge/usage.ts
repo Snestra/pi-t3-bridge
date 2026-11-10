@@ -7,7 +7,7 @@ import type {
 import { accountLines, delegatedChildren, readFamilies } from "./accounts.ts";
 import { appendLedger, readLedger } from "./ledger.ts";
 import type { LedgerLine } from "./ledger.ts";
-import { isDelegated, ownThreadId } from "./thread.ts";
+import { isDelegatedChild, ownThreadId } from "./thread.ts";
 
 // What this thread and its children cost, from what Pi already records on
 // each assistant message and what each child wrote to the ledger. It reads
@@ -152,9 +152,7 @@ export const registerUsage = (pi: ExtensionAPI): void => {
       return;
     }
 
-    const own = await ownThreadId();
-
-    if (own === null || !isDelegated(own)) {
+    if (!(await isDelegatedChild())) {
       return;
     }
 
@@ -168,7 +166,7 @@ export const registerUsage = (pi: ExtensionAPI): void => {
       cost: Number(usage.cost.toFixed(4)),
       input: usage.input,
       model: ctx.model?.id ?? null,
-      threadId: own,
+      threadId: await ownThreadId(),
       tokens: usage.tokens,
     });
   });

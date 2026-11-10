@@ -79,7 +79,7 @@ const UNAVAILABLE = "Goal tools are unavailable or owned by another extension.";
 const REJECTED_UPDATE =
   "Goal update rejected. Read get_goal and use its current identity and revision.";
 
-export const readGoal = (ctx: ExtensionContext): Goal | null => {
+const readGoal = (ctx: ExtensionContext): Goal | null => {
   const entry = ctx.sessionManager
     .getBranch()
     .findLast(

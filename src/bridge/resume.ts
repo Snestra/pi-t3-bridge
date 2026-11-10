@@ -22,7 +22,7 @@ const MARKER = /\[pi-t3-resume (?<marker>[\w-]+)\]/u;
 
 // The saved goal run a resume continues, by ID and revision, so an old
 // resume cannot restart a goal the user changed since.
-export const GoalIdentitySchema = obj({
+const GoalIdentitySchema = obj({
   id: str({ minLength: 1 }),
   revision: int({ minimum: 1 }),
 });
