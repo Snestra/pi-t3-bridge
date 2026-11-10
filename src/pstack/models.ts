@@ -31,6 +31,7 @@ import {
   settleChildren,
 } from "../bridge/accounts.ts";
 import { t3Json, t3Text } from "../bridge/t3-json.ts";
+import { findT3Tool, isT3Tool } from "../bridge/t3-tasks.ts";
 import { ACCOUNT_COMMAND } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import type { Policy } from "./resources.ts";
@@ -128,11 +129,6 @@ const ResolutionSchema = union([
 ]);
 
 type Resolution = Static<typeof ResolutionSchema>;
-
-const ORCHESTRATOR_CAPABILITIES_TOOLS = [
-  "mcp__t3-code__orchestrator_capabilities",
-  "mcp__t3__orchestrator_capabilities",
-] as const;
 
 const SIZE_FALLBACK: Readonly<Record<Complexity, readonly Complexity[]>> = {
   bounded: ["bounded", "groundwork", "general"],
@@ -657,9 +653,7 @@ const readSheet = (): string => {
 };
 
 const readCatalog = async (ctx: ExtensionToolContext): Promise<Catalog> => {
-  const name = ORCHESTRATOR_CAPABILITIES_TOOLS.find((candidate) =>
-    ctx.tools.some((tool) => tool.name === candidate)
-  );
+  const name = findT3Tool(ctx.tools, "orchestrator_capabilities");
 
   if (name === undefined) {
     throw new Error(
@@ -753,8 +747,7 @@ export const registerModelRouting = (pi: ExtensionAPI): void => {
 
   pi.on("tool_call", (event) => {
     if (
-      (event.toolName === "mcp__t3-code__t3_thread_send" ||
-        event.toolName === "mcp__t3__t3_thread_send") &&
+      isT3Tool(event.toolName, "t3_thread_send") &&
       isThreadSend(event.input) &&
       ACCOUNT_COMMAND.test(event.input.message)
     ) {

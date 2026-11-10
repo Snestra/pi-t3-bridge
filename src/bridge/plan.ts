@@ -23,6 +23,7 @@ import {
   wrappedLines,
 } from "./cards.ts";
 import { registerUnlessTaken } from "./claim.ts";
+import { isT3Tool } from "./t3-tasks.ts";
 
 const PLAN_GATE_ENTRY = "pi-t3-plan-gate";
 
@@ -56,22 +57,24 @@ const BLOCK_REASONS: Readonly<Partial<Record<PlanGate["state"], string>>> = {
     "The user asked for a revised plan. Only read-only tools run until the user approves a plan through the `plan` tool.",
 };
 
+// Tools Pi or T3 declare without a readOnlyHint that change no files.
 // Codemode runs each nested tool call through tool_call handlers, so the
 // calls it makes are checked one by one.
-const ALWAYS_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "codemode",
   "find",
   "grep",
   "ls",
-  "mcp__t3-code__html_preview",
-  "mcp__t3-code__html_render",
-  "mcp__t3-code__orchestrator_capabilities",
-  "mcp__t3-code__t3_thread_read",
-  "mcp__t3__orchestrator_capabilities",
-  "mcp__t3__t3_thread_read",
   "read",
   "tool_search",
 ]);
+
+const READ_ONLY_T3_TOOLS = [
+  "html_preview",
+  "html_render",
+  "orchestrator_capabilities",
+  "t3_thread_read",
+];
 
 const currentGate = (ctx: ExtensionContext): PlanGate => {
   const entries = ctx.sessionManager.getBranch();
@@ -142,7 +145,8 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
   };
 
   const readOnly = (toolName: string): boolean =>
-    ALWAYS_ALLOWED_TOOLS.has(toolName) ||
+    READ_ONLY_TOOLS.has(toolName) ||
+    READ_ONLY_T3_TOOLS.some((name) => isT3Tool(toolName, name)) ||
     pi
       .getAllTools()
       .some(

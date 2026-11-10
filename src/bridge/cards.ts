@@ -2,7 +2,7 @@ import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { Marked } from "marked";
 import { render } from "pele";
 
-const HTML_RENDER_TOOL = "mcp__t3-code__html_render";
+import { findT3Tool } from "./t3-tasks.ts";
 
 const MIN_FRAME_HEIGHT = 80;
 const MAX_FRAME_HEIGHT = 2000;
@@ -119,13 +119,13 @@ export const renderInlineCard = async (
   ctx: ExtensionToolContext,
   card: InlineCard
 ): Promise<boolean> => {
-  const available = ctx.tools.some((tool) => tool.name === HTML_RENDER_TOOL);
+  const tool = findT3Tool(ctx.tools, "html_render");
 
-  if (!available) {
+  if (tool === undefined) {
     return false;
   }
 
-  const outcome = await ctx.executeTool(HTML_RENDER_TOOL, card);
+  const outcome = await ctx.executeTool(tool, card);
 
   return !outcome.isError;
 };
