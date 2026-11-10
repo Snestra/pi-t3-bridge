@@ -7,7 +7,7 @@ import { findT3Tool } from "./t3-tasks.ts";
 const MIN_FRAME_HEIGHT = 80;
 const MAX_FRAME_HEIGHT = 2000;
 
-export const escapeHtml = (text: string): string =>
+const escapeHtml = (text: string): string =>
   text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
@@ -37,7 +37,11 @@ pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-
 .diagram-error p{color:var(--destructive);margin:0 0 6px}
 `;
 
-export const wrappedLines = (text: string, charsPerLine: number): number =>
+// Height estimates follow STYLE: 21 px per line of text at 0.875rem and 1.5
+// line height, with the card padding and heading on top.
+const LINE_PX = 21;
+
+const wrappedLines = (text: string, charsPerLine: number): number =>
   text
     .split("\n")
     .reduce(
@@ -55,7 +59,7 @@ interface MarkdownResult {
   readonly prose: string;
 }
 
-export const markdownHtml = (markdown: string): MarkdownResult => {
+const markdownHtml = (markdown: string): MarkdownResult => {
   let diagramHeight = 0;
   let prose = markdown;
 
@@ -103,17 +107,86 @@ export const markdownHtml = (markdown: string): MarkdownResult => {
   return { diagramHeight, html, prose };
 };
 
-export const pageHtml = (title: string, body: string): string =>
+const pageHtml = (title: string, body: string): string =>
   `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body>${body}</body></html>`;
 
-export const frameHeight = (estimate: number): number =>
+const frameHeight = (estimate: number): number =>
   Math.min(MAX_FRAME_HEIGHT, Math.max(MIN_FRAME_HEIGHT, Math.ceil(estimate)));
 
-interface InlineCard {
+export interface InlineCard {
   readonly height: number;
   readonly html: string;
   readonly title: string;
 }
+
+export const planCard = (title: string, plan: string): InlineCard => {
+  const { diagramHeight, html, prose } = markdownHtml(plan);
+
+  return {
+    height: frameHeight(
+      70 +
+        wrappedLines(title, 40) * LINE_PX +
+        wrappedLines(prose, 30) * LINE_PX +
+        diagramHeight
+    ),
+    html: pageHtml(
+      title,
+      `<main class="card"><div class="head"><h1>${escapeHtml(title)}</h1></div><div class="md">${html}</div></main>`
+    ),
+    title,
+  };
+};
+
+// The step classes are the task statuses STYLE colors.
+type StepStatus = "completed" | "in_progress" | "pending";
+
+const STEP_LOOK: Readonly<
+  Record<StepStatus, { readonly label: string; readonly mark: string }>
+> = {
+  completed: { label: "Completed", mark: "✓" },
+  in_progress: { label: "In progress", mark: "●" },
+  pending: { label: "Pending", mark: "○" },
+};
+
+export const taskCard = (list: {
+  readonly explanation?: string | undefined;
+  readonly progress: string;
+  readonly steps: readonly {
+    readonly status: StepStatus;
+    readonly text: string;
+  }[];
+}): InlineCard => {
+  const note =
+    list.explanation === undefined
+      ? ""
+      : `<p class="note">${escapeHtml(list.explanation)}</p>`;
+
+  const items = list.steps
+    .map(
+      (step) =>
+        `<li class="${step.status}"><span class="dot" aria-hidden="true">${STEP_LOOK[step.status].mark}</span><span class="text"><span class="sr-only">${STEP_LOOK[step.status].label}: </span>${escapeHtml(step.text)}</span></li>`
+    )
+    .join("");
+
+  const height =
+    75 +
+    (list.explanation === undefined
+      ? 0
+      : wrappedLines(list.explanation, 38) * LINE_PX + 10) +
+    list.steps.reduce(
+      (sum, step) => sum + wrappedLines(step.text, 38) * LINE_PX + 8,
+      0
+    );
+
+  return {
+    height: frameHeight(height),
+    html: pageHtml(
+      "Tasks",
+      `<main class="card"><div class="head"><h1>Tasks</h1><span class="muted">${escapeHtml(list.progress)}</span></div>${note}<ol>${items}</ol></main>`
+    ),
+    title: "Tasks",
+  };
+};
 
 export const renderInlineCard = async (
   ctx: ExtensionToolContext,

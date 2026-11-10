@@ -3,25 +3,10 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  compile,
-  lit,
-  obj,
-  oneOf,
-  opt,
-  str,
-  union,
-} from "@earendil-works/pi-schema";
+import { compile, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import {
-  escapeHtml,
-  frameHeight,
-  markdownHtml,
-  pageHtml,
-  renderInlineCard,
-  wrappedLines,
-} from "./cards.ts";
+import { planCard, renderInlineCard } from "./cards.ts";
 import { registerUnlessTaken } from "./claim.ts";
 import { isT3Tool } from "./t3-tasks.ts";
 
@@ -31,16 +16,12 @@ const PLAN_CHOICES = ["Approve", "Revise", "Cancel"] as const;
 
 type PlanChoice = (typeof PLAN_CHOICES)[number];
 
-const PlanGateSchema = union([
-  obj({ state: lit("open") }, { open: true }),
-  obj(
-    {
-      planId: str(),
-      state: oneOf(["awaiting", "revising", "approved", "cancelled"]),
-    },
-    { open: true }
-  ),
-]);
+const PlanGateSchema = obj(
+  {
+    state: oneOf(["open", "awaiting", "revising", "approved", "cancelled"]),
+  },
+  { open: true }
+);
 
 type PlanGate = Static<typeof PlanGateSchema>;
 
@@ -100,28 +81,6 @@ export const planBlocked = (ctx: ExtensionContext): boolean =>
 const isPlanChoice = (value: string | undefined): value is PlanChoice =>
   PLAN_CHOICES.some((choice) => choice === value);
 
-interface PlanCard {
-  readonly height: number;
-  readonly html: string;
-}
-
-const planCard = (title: string, plan: string): PlanCard => {
-  const { diagramHeight, html, prose } = markdownHtml(plan);
-
-  return {
-    height: frameHeight(
-      70 +
-        wrappedLines(title, 40) * 21 +
-        wrappedLines(prose, 30) * 21 +
-        diagramHeight
-    ),
-    html: pageHtml(
-      title,
-      `<main class="card"><div class="head"><h1>${escapeHtml(title)}</h1></div><div class="md">${html}</div></main>`
-    ),
-  };
-};
-
 const PlanSchema = obj(
   {
     plan: str({
@@ -132,12 +91,6 @@ const PlanSchema = obj(
   },
   { open: true }
 );
-
-interface PlanToolDetails {
-  readonly choice: PlanChoice | "dismissed";
-  readonly feedback?: string;
-  readonly planId: string;
-}
 
 export const registerPlanGate = (pi: ExtensionAPI): void => {
   const setGate = (gate: PlanGate): void => {
@@ -180,7 +133,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
       description:
         "Ask the user to approve a plan before any file changes. Until the user approves, only read-only tools run. On Revise, change the plan and call this tool again. On Cancel, stop: only read-only tools run until the user's next message.",
       execute: async (
-        toolCallId,
+        _toolCallId,
         params: Static<typeof PlanSchema>,
         _signal,
         _onUpdate,
@@ -194,15 +147,15 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
 
         const title = params.title ?? "Proposed plan";
 
-        setGate({ planId: toolCallId, state: "awaiting" });
+        setGate({ state: "awaiting" });
 
         let answer: string | undefined;
 
         try {
-          const rendered = await renderInlineCard(ctx, {
-            ...planCard(title, params.plan),
-            title,
-          });
+          const rendered = await renderInlineCard(
+            ctx,
+            planCard(title, params.plan)
+          );
 
           const question = rendered
             ? `Approve "${title}" shown above?`
@@ -218,9 +171,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
         const choice = isPlanChoice(answer) ? answer : "Cancel";
 
         if (choice === "Approve") {
-          setGate({ planId: toolCallId, state: "approved" });
-
-          const details: PlanToolDetails = { choice, planId: toolCallId };
+          setGate({ state: "approved" });
 
           return {
             content: [
@@ -229,7 +180,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
                 type: "text",
               },
             ],
-            details,
+            details: undefined,
           };
         }
 
@@ -237,13 +188,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
           const feedback =
             (await ctx.ui.input("What should change in the plan?")) ?? "";
 
-          setGate({ planId: toolCallId, state: "revising" });
-
-          const details: PlanToolDetails = {
-            choice,
-            feedback,
-            planId: toolCallId,
-          };
+          setGate({ state: "revising" });
 
           return {
             content: [
@@ -252,16 +197,11 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
                 type: "text",
               },
             ],
-            details,
+            details: undefined,
           };
         }
 
-        setGate({ planId: toolCallId, state: "cancelled" });
-
-        const details: PlanToolDetails = {
-          choice: answer === undefined ? "dismissed" : choice,
-          planId: toolCallId,
-        };
+        setGate({ state: "cancelled" });
 
         return {
           content: [
@@ -270,7 +210,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
               type: "text",
             },
           ],
-          details,
+          details: undefined,
           terminate: true,
         };
       },
