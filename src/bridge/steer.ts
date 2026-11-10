@@ -22,7 +22,7 @@ import {
   MAST_NOTE,
   STEER_NOTE,
   handoffRule,
-  isUser,
+  sincePrompt,
   mastExcerpt,
   stopInput,
 } from "./steer-transcript.ts";
@@ -43,8 +43,6 @@ import { isDelegatedChild } from "./thread.ts";
 const NUDGE_LIMITS = { length: 2, stop: 1 } as const;
 
 type NudgeGroup = keyof typeof NUDGE_LIMITS;
-
-const UNAWARE_OF_TERMINATION = "1.5";
 
 // A judge that takes longer must not hold up the end of a run. Without Jev the
 // judge is a chat model reading a 50 KiB prompt, and those calls took 1.7-5.9 s:
@@ -103,25 +101,21 @@ const atLimit = (ctx: ExtensionContext, group: NudgeGroup): boolean => {
   const branch = ctx.sessionManager.getBranch();
 
   return (
-    branch
-      .slice(branch.findLastIndex(isUser) + 1)
-      .filter((entry) => groupOf(entry) === group).length >= NUDGE_LIMITS[group]
+    sincePrompt(branch).filter((entry) => groupOf(entry) === group).length >=
+    NUDGE_LIMITS[group]
   );
 };
 
-// The newest note this feature added in the prompt, of either kind. MAST 1.5
-// ("you may be continuing past the end") would contradict a stop nudge sent
-// just before it, so it stays quiet then.
+// Whether the newest note this feature added in the prompt, of either kind,
+// is a stop nudge.
 const lastNoteIsStopNudge = (ctx: ExtensionContext): boolean => {
   const branch = ctx.sessionManager.getBranch();
 
-  const last = branch
-    .slice(branch.findLastIndex(isUser) + 1)
-    .findLast(
-      (entry) =>
-        entry.type === "custom_message" &&
-        (entry.customType === STEER_NOTE || entry.customType === MAST_NOTE)
-    );
+  const last = sincePrompt(branch).findLast(
+    (entry) =>
+      entry.type === "custom_message" &&
+      (entry.customType === STEER_NOTE || entry.customType === MAST_NOTE)
+  );
 
   return last?.type === "custom_message" && last.customType === STEER_NOTE;
 };
@@ -218,7 +212,7 @@ const judgeSignal = (ctx: ExtensionContext): AbortSignal =>
 
 export const registerSteer = (
   pi: ExtensionAPI,
-  goalOwnsRun: () => boolean = () => false
+  goalOwnsRun: () => boolean
 ): void => {
   let rule: string | undefined;
   let warned = false;
@@ -254,8 +248,12 @@ export const registerSteer = (
   let awaitingPrompt = false;
   let lastTurnHadTools = false;
 
-  const arm = (): void => {
+  // A prompt starts with every mode armed, its turns counted from zero, and
+  // the MAST judge reading from where the branch stands.
+  const startPrompt = (from?: number): void => {
     armed = new Set(mastModes().map((mode) => mode.code));
+    turn = 0;
+    scopeFrom = from;
   };
 
   // Each mode fires once per prompt. It fires again only after a check puts
@@ -263,10 +261,10 @@ export const registerSteer = (
   // A held mode stays armed, so it can still fire later in the prompt.
   const decide = (
     probabilities: Readonly<Record<string, number>>,
-    held: (code: string) => boolean
+    held: (mode: MastMode) => boolean
   ) =>
     mastModes().filter((mode) => {
-      if (held(mode.code)) {
+      if (held(mode)) {
         return false;
       }
 
@@ -281,16 +279,12 @@ export const registerSteer = (
 
   pi.on("session_start", () => {
     warned = false;
-    arm();
-    turn = 0;
-    scopeFrom = undefined;
+    startPrompt();
   });
 
   pi.on("before_agent_start", (event, ctx) => {
     rule = handoffRule(event.systemPromptOptions.contextFiles);
-    arm();
-    turn = 0;
-    scopeFrom = ctx.sessionManager.getBranch().length;
+    startPrompt(ctx.sessionManager.getBranch().length);
     awaitingPrompt = true;
   });
 
@@ -309,9 +303,7 @@ export const registerSteer = (
     // without tool calls. A user message between tool turns steers the same
     // prompt.
     if (!lastTurnHadTools) {
-      arm();
-      turn = 0;
-      scopeFrom = ctx.sessionManager.getBranch().length;
+      startPrompt(ctx.sessionManager.getBranch().length);
     }
   });
 
@@ -362,7 +354,7 @@ export const registerSteer = (
 
     const fired = decide(
       verdict.probabilities,
-      (code) => code === UNAWARE_OF_TERMINATION && stopNudged
+      (fire) => fire.quietAfterStopNudge === true && stopNudged
     );
 
     const noted = mode === "on" && fired.length > 0;
@@ -445,6 +437,7 @@ export const registerSteer = (
       return;
     }
 
+    // A goal can take the run over while the judge thinks.
     if (goalOwnsRun()) {
       return;
     }

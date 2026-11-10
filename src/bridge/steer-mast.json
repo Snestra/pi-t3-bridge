@@ -14,6 +14,7 @@
       "code": "1.5",
       "field": "unaware_of_termination",
       "label": "Doesn't know when to stop",
+      "quietAfterStopNudge": true,
       "threshold": 0.47,
       "note": "You may be continuing past the point where the task is finished or blocked. Check whether the task is done or cannot progress, and stop or report if so."
     },
