@@ -5,17 +5,9 @@ import path from "node:path";
 import { after, test } from "node:test";
 
 import * as piAi from "@earendil-works/pi-ai";
-import * as piSdk from "@earendil-works/pi-coding-agent";
 import { obj, opt, str, unknown } from "@earendil-works/pi-schema";
 
-const extensionDir = path.dirname(import.meta.dirname);
-
-const liveCatalog = JSON.parse(
-  await readFile(
-    path.join(import.meta.dirname, "fixtures/t3-catalog.json"),
-    "utf-8"
-  )
-);
+import { createSession, extensionDir, liveCatalog, onPi } from "./harness.mjs";
 
 const policy = JSON.parse(
   await readFile(path.join(extensionDir, "pstack", "models.json"), "utf-8")
@@ -113,55 +105,11 @@ const runTurn = async ({
   await mkdir(sheetDir, { recursive: true });
   await writeFile(path.join(sheetDir, "models.md"), sheet);
 
-  const root = path.join(temporary, name);
-  const cwd = path.join(root, "workspace");
-  const agentDir = path.join(root, "agent");
-
-  await mkdir(cwd, { recursive: true });
-  await mkdir(agentDir, { recursive: true });
-
-  const faux = piAi.fauxProvider({ provider: `faux-${name}` });
-
-  const modelRuntime = await piSdk.ModelRuntime.create({
-    authPath: path.join(agentDir, "auth.json"),
-    modelsPath: null,
-  });
-
-  modelRuntime.registerNativeProvider(faux.provider);
-  await modelRuntime.setRuntimeApiKey(`faux-${name}`, "test");
-
-  const settingsManager = piSdk.SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: false },
-  });
-
-  const loader = new piSdk.DefaultResourceLoader({
-    additionalExtensionPaths: [
-      path.join(extensionDir, "bridge.ts"),
-      path.join(extensionDir, "pstack.ts"),
-    ],
-    agentDir,
-    cwd,
+  const { session, faux } = await createSession({
     extensionFactories: [catalogTool(catalog, bridged), delegateTool],
-    noContextFiles: true,
-    noExtensions: true,
-    noPromptTemplates: true,
-    noSkills: true,
-    noThemes: true,
-    settingsManager,
-  });
-
-  await loader.reload();
-
-  const { session } = await piSdk.createAgentSession({
-    agentDir,
-    cwd,
-    model: faux.getModel(),
-    modelRuntime,
-    resourceLoader: loader,
-    sessionManager: piSdk.SessionManager.inMemory(cwd),
-    settingsManager,
-    thinkingLevel: "off",
+    jev: false,
+    name,
+    root: temporary,
   });
 
   await session.bindExtensions({ mode: "rpc" });
@@ -205,12 +153,6 @@ const SHEET = await readFile(
   path.join(import.meta.dirname, "fixtures/models-sheet.txt"),
   "utf-8"
 );
-
-const onPi = (model, thinking) => ({
-  model: `cliproxyapi/${model}`,
-  options: { thinking },
-  providerInstanceId: "pi",
-});
 
 test("a sheet panel on disabled providers moves to the same models on Pi", async () => {
   const [panel] = await resolve({

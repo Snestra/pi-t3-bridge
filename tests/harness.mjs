@@ -199,34 +199,49 @@ const registerClassifier = async (modelRuntime, classify) => {
   await modelRuntime.setRuntimeApiKey("typesafe", "test");
 };
 
-// One Pi session with this extension loaded, driven by a scripted faux model.
-// `modelId` sets the session model's ID, and so its family. `classify` scripts
-// the stop judge, and `agentsFiles` are the context files the session loads.
-// `jev: false` swaps the built-in typesafe provider for one with no models, so
-// the session has no Jev even when TYPESAFE_API_KEY is set on the machine.
-export const startSession = async ({
+// The Pi session recipe every test file shares: a faux provider, a model
+// runtime, a loader with this extension's files, and an agent session. It does
+// not bind extensions, so each caller binds its own UI.
+//   name, root     the session lives in <root>/<name>/{workspace,agent,sessions}
+//   cwd            overrides the workspace directory
+//   extensions     file names in the repo root to load
+//   extensionFactories  extra in-process extensions
+//   modelId        the faux model's ID (and so its family); default faux model if unset
+//   jev            true: scripted classifier. false: no Jev at all. "builtin": leave Pi's own
+//   classify       scripts the stop judge when jev is true
+//   retry          Pi retry settings
+//   agentsFiles    the context files the session loads
+//   sessionManager (cwd, sessionsDir) => SessionManager, to replace the default
+//   tools          passed to createAgentSession
+export const createSession = async ({
   agentsFiles = [],
   classify = unscripted,
   cwd,
+  extensionFactories = [],
   extensions = ["bridge.ts", "pstack.ts"],
   jev = true,
-  modelId = "claude-opus-5-5",
+  modelId,
   name,
   retry = { enabled: false },
   root,
-  world,
+  sessionManager,
+  tools,
 }) => {
   const sessionRoot = path.join(root, name);
   const workdir = cwd ?? path.join(sessionRoot, "workspace");
   const agentDir = path.join(sessionRoot, "agent");
+  const sessionsDir = path.join(sessionRoot, "sessions");
 
   await mkdir(workdir, { recursive: true });
   await mkdir(agentDir, { recursive: true });
 
-  const faux = piAi.fauxProvider({
-    models: [{ id: modelId, name: modelId }],
-    provider: `faux-${name}`,
-  });
+  const fauxOptions = { provider: `faux-${name}` };
+
+  if (modelId !== undefined) {
+    fauxOptions.models = [{ id: modelId, name: modelId }];
+  }
+
+  const faux = piAi.fauxProvider(fauxOptions);
 
   const modelRuntime = await piSdk.ModelRuntime.create({
     authPath: path.join(agentDir, "auth.json"),
@@ -236,9 +251,9 @@ export const startSession = async ({
   modelRuntime.registerNativeProvider(faux.provider);
   await modelRuntime.setRuntimeApiKey(`faux-${name}`, "test");
 
-  if (jev) {
+  if (jev === true) {
     await registerClassifier(modelRuntime, classify);
-  } else {
+  } else if (jev === false) {
     modelRuntime.registerNativeProvider(
       piAi.createProvider({
         auth: {
@@ -275,7 +290,7 @@ export const startSession = async ({
     agentDir,
     agentsFilesOverride: () => ({ agentsFiles }),
     cwd: workdir,
-    extensionFactories: world === undefined ? [] : [fakeT3(world)],
+    extensionFactories,
     noContextFiles: true,
     noExtensions: true,
     noPromptTemplates: true,
@@ -286,18 +301,60 @@ export const startSession = async ({
 
   await loader.reload();
 
-  const { session } = await piSdk.createAgentSession({
+  const sessionOptions = {
     agentDir,
     cwd: workdir,
     model: faux.getModel(),
     modelRuntime,
     resourceLoader: loader,
-    sessionManager: piSdk.SessionManager.create(
-      workdir,
-      path.join(sessionRoot, "sessions")
-    ),
+    sessionManager:
+      sessionManager?.(workdir, sessionsDir) ??
+      piSdk.SessionManager.create(workdir, sessionsDir),
     settingsManager,
     thinkingLevel: "off",
+  };
+
+  if (tools !== undefined) {
+    sessionOptions.tools = tools;
+  }
+
+  const { session } = await piSdk.createAgentSession(sessionOptions);
+
+  return { cwd: workdir, faux, loader, modelRuntime, session };
+};
+
+// One Pi session with this extension loaded, driven by a scripted faux model.
+// `modelId` sets the session model's ID, and so its family. `classify` scripts
+// the stop judge, and `agentsFiles` are the context files the session loads.
+// `jev: false` swaps the built-in typesafe provider for one with no models, so
+// the session has no Jev even when TYPESAFE_API_KEY is set on the machine.
+export const startSession = async ({
+  agentsFiles = [],
+  classify = unscripted,
+  cwd,
+  extensions = ["bridge.ts", "pstack.ts"],
+  jev = true,
+  modelId = "claude-opus-5-5",
+  name,
+  retry = { enabled: false },
+  root,
+  world,
+}) => {
+  const {
+    cwd: workdir,
+    faux,
+    session,
+  } = await createSession({
+    agentsFiles,
+    classify,
+    cwd,
+    extensionFactories: world === undefined ? [] : [fakeT3(world)],
+    extensions,
+    jev,
+    modelId,
+    name,
+    retry,
+    root,
   });
 
   await session.bindExtensions({ mode: "rpc" });
