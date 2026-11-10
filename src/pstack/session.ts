@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { PstackPaths } from "./resources.ts";
@@ -12,7 +12,10 @@ export const sessionGuidance = (paths: PstackPaths): string => {
     "session-start-context.md"
   );
 
-  const guidance = readFileSync(contextPath, "utf-8").trim();
+  // A checkout without pstack/ serves no hook file of its own.
+  const guidance = existsSync(contextPath)
+    ? readFileSync(contextPath, "utf-8").trim()
+    : "You have pi-t3-bridge, pstack for T3 Code.";
 
   return [
     guidance,

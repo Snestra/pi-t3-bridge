@@ -103,10 +103,12 @@ export const appendLog = <T>(name: string, line: T): void => {
 
   const file = statePath(name);
 
-  if (
-    (statSync(file, { throwIfNoEntry: false })?.size ?? 0) >= LOG_LIMIT_BYTES
-  ) {
-    renameSync(file, `${file}${OLDER}`);
+  try {
+    if (statSync(file).size >= LOG_LIMIT_BYTES) {
+      renameSync(file, `${file}${OLDER}`);
+    }
+  } catch {
+    // No log yet, or another session rotated it first.
   }
 
   appendFileSync(file, `${JSON.stringify(line)}\n`);

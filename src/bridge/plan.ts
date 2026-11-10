@@ -180,7 +180,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
                 type: "text",
               },
             ],
-            details: undefined,
+            details: { choice },
           };
         }
 
@@ -197,7 +197,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
                 type: "text",
               },
             ],
-            details: undefined,
+            details: { choice, feedback },
           };
         }
 
@@ -210,7 +210,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
               type: "text",
             },
           ],
-          details: undefined,
+          details: { choice: answer === undefined ? "dismissed" : choice },
           terminate: true,
         };
       },
