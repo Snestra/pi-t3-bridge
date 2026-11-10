@@ -8,6 +8,7 @@ The plan gate no longer has a Plan mode state that nothing set. The `plan` tool 
 
 These problems are fixed:
 
+- A stop or MAST check that ran past its deadline showed "steer unavailable", as if the classifier were down. The deadline is now 15 seconds, and a check it cuts off is logged in `steer.jsonl` as skipped, with no warning. Thanks to DeathSurfing (#26).
 - A child's acceptance command that timed out lost its output and its "(timed out)" note in the report.
 - A child working in a subdirectory of a repository, or writing a file with a space in its name, was reported as writing outside its brief.
 - Two Pi processes that started at the same time could fail while building the pstack copy.

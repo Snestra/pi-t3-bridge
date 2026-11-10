@@ -301,6 +301,23 @@ export const registerSteer = (
     }
   };
 
+  // A judge the user cancelled drops the check quietly. One the deadline cut
+  // off is skipped and logged, because the classifier is not down. Any other
+  // error is logged and warned about once.
+  const judgeFailed = (
+    ctx: ExtensionContext,
+    signal: AbortSignal,
+    line: Parameters<typeof appendSteerLog>[0],
+    error: string
+  ): void => {
+    if (!signal.aborted) {
+      appendSteerLog({ ...line, error });
+      warnOnce(ctx, error);
+    } else if (!ctx.signal?.aborted) {
+      appendSteerLog({ ...line, skipped: "deadline" });
+    }
+  };
+
   // MAST state, per prompt.
   let armed = new Set<string>();
   let turn = 0;
@@ -406,19 +423,8 @@ export const registerSteer = (
 
     const verdict = await judgeMast(ctx, excerpt, signal);
 
-    // A judge the user cancelled drops the check quietly, and one the deadline
-    // cut off is not a judge that is down: neither is worth a warning.
-    if ("error" in verdict && signal.aborted) {
-      if (!ctx.signal?.aborted) {
-        appendSteerLog({ ...base, nudged: false, skipped: "deadline" });
-      }
-
-      return;
-    }
-
     if ("error" in verdict) {
-      appendSteerLog({ ...base, error: verdict.error, nudged: false });
-      warnOnce(ctx, verdict.error);
+      judgeFailed(ctx, signal, { ...base, nudged: false }, verdict.error);
 
       return;
     }
@@ -499,28 +505,13 @@ export const registerSteer = (
 
     const verdict = await judgeStop(ctx, input, signal);
 
-    // A judge the user cancelled, or one the deadline cut off, is not a judge
-    // that is down: the check is skipped, not warned about.
     if ("error" in verdict) {
-      if (signal.aborted) {
-        if (!ctx.signal?.aborted) {
-          appendSteerLog({
-            ...base,
-            kind: "stop",
-            nudged: false,
-            skipped: "deadline",
-          });
-        }
-      } else {
-        appendSteerLog({
-          ...base,
-          error: verdict.error,
-          kind: "stop",
-          nudged: false,
-        });
-
-        warnOnce(ctx, verdict.error);
-      }
+      judgeFailed(
+        ctx,
+        signal,
+        { ...base, kind: "stop", nudged: false },
+        verdict.error
+      );
 
       return;
     }
