@@ -1,7 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { compile, str } from "@earendil-works/pi-schema";
 
-import { ACCOUNT_COMMAND } from "../bridge/accounts.ts";
+import { ACCOUNT_COMMAND } from "../bridge/account-commands.ts";
 import type { Policy } from "./resources.ts";
 
 // The child's extension reads its limits from the delegation brief

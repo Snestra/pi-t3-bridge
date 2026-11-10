@@ -20,6 +20,7 @@ import {
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
+import { EXHAUSTED_COMMAND, RECOVERED_COMMAND } from "./account-commands.ts";
 import { savedEntries } from "./branch.ts";
 import {
   NO_RESET_MS,
@@ -49,11 +50,6 @@ import { isDelegatedChild } from "./thread.ts";
 const ACCOUNT_ENTRY = "pi-t3-account";
 
 const FAMILIES = "accounts.json";
-
-// The commands that change the shared account state, as they appear in text:
-// at the start of a line, or after a space, quote or bracket. Inside a path
-// such as notes/t3-exhausted.md the slash follows a name, so it is not one.
-export const ACCOUNT_COMMAND = /(?<![\w.~/-])\/t3-(?:exhausted|recovered)\b/u;
 
 // A model's family is the first word of its ID's last part: claude, gpt, grok.
 export const family = (model: string): string =>
@@ -505,7 +501,7 @@ export const registerAccounts = (
     }
   });
 
-  pi.registerCommand("t3-exhausted", {
+  pi.registerCommand(EXHAUSTED_COMMAND, {
     description:
       "Mark a model family's account as out of usage for every chat: /t3-exhausted <family> [reset time]",
     handler: async (args, ctx) => {
@@ -524,7 +520,7 @@ export const registerAccounts = (
     },
   });
 
-  pi.registerCommand("t3-recovered", {
+  pi.registerCommand(RECOVERED_COMMAND, {
     description:
       "Mark a model family's account as usable again for every chat: /t3-recovered <family>",
     handler: async (args, ctx) => {

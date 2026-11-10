@@ -22,8 +22,8 @@ import {
   parseEntry,
   parseSheet,
 } from "../../pstack/skills/setup-pstack/scripts/t3-sheet.mjs";
+import { ACCOUNT_COMMAND } from "../bridge/account-commands.ts";
 import {
-  ACCOUNT_COMMAND,
   family,
   familyOpen,
   readFamilies,
