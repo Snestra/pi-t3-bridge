@@ -233,6 +233,23 @@ const placeEntry = (
   return undefined;
 };
 
+// A routed model, preferring the parent's own provider.
+const placeModel = (
+  model: string,
+  reasoning: string,
+  catalog: Catalog,
+  notes: string[]
+): Target | undefined =>
+  placeEntry(
+    {
+      model,
+      options: { reasoning },
+      providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
+    },
+    catalog,
+    notes
+  );
+
 const placeRouted = (
   modelFamily: string,
   complexity: Complexity,
@@ -249,12 +266,9 @@ const placeRouted = (
   }
 
   for (const size of SIZE_FALLBACK[complexity]) {
-    const placed = placeEntry(
-      {
-        model: sizes[size],
-        options: { reasoning: policy.routing.reasoning[complexity] },
-        providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
-      },
+    const placed = placeModel(
+      sizes[size],
+      policy.routing.reasoning[complexity],
       catalog,
       notes
     );
@@ -467,15 +481,7 @@ const resolvePanelJob = (
 
   for (const seat of panel) {
     if (available(family(seat.model))) {
-      const placed = placeEntry(
-        {
-          model: seat.model,
-          options: { reasoning: seat.reasoning },
-          providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
-        },
-        catalog,
-        notes
-      );
+      const placed = placeModel(seat.model, seat.reasoning, catalog, notes);
 
       if (placed !== undefined) {
         targets.push(placed);
@@ -576,15 +582,7 @@ const resolveJob = (
       const placed =
         model === undefined
           ? undefined
-          : placeEntry(
-              {
-                model,
-                options: { reasoning: wanted.reasoning },
-                providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
-              },
-              catalog,
-              notes
-            );
+          : placeModel(model, wanted.reasoning, catalog, notes);
 
       if (placed !== undefined) {
         if (name !== wantedFamily) {
