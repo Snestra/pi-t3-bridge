@@ -63,9 +63,7 @@ export const sessionGuidance = (paths: PstackPaths): string => {
     "session-start-context.md"
   );
 
-  const guidance = existsSync(contextPath)
-    ? readFileSync(contextPath, "utf-8").trim()
-    : "You have pi-t3-bridge, pstack for T3 Code.";
+  const guidance = readFileSync(contextPath, "utf-8").trim();
 
   return [
     guidance,

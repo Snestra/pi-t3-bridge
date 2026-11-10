@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -116,12 +116,4 @@ export const readPolicy = (): Policy => {
   policy = parsed;
 
   return policy;
-};
-
-export const skillPaths = (paths: PstackPaths): string[] => {
-  if (!existsSync(paths.skillsDir)) {
-    return [];
-  }
-
-  return [paths.skillsDir];
 };

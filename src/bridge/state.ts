@@ -38,7 +38,7 @@ export const moveOldState = (): void => {
   }
 };
 
-const statePath = (name: string): string => path.join(stateDir(), name);
+export const statePath = (name: string): string => path.join(stateDir(), name);
 
 // A file that is missing, not JSON, or not the owner's shape reads as
 // undefined.

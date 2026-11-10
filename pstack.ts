@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { registerChild } from "./src/pstack/child.ts";
 import { registerModelRouting } from "./src/pstack/models.ts";
-import { pstackPaths, skillPaths } from "./src/pstack/resources.ts";
+import { pstackPaths } from "./src/pstack/resources.ts";
 import { registerResults } from "./src/pstack/results.ts";
 import {
   moveOldSheet,
@@ -16,7 +16,7 @@ const pstackExtension = (pi: ExtensionAPI): void => {
   moveOldSheet();
   const paths = pstackPaths();
 
-  pi.on("resources_discover", () => ({ skillPaths: skillPaths(paths) }));
+  pi.on("resources_discover", () => ({ skillPaths: [paths.skillsDir] }));
 
   pi.on("before_agent_start", (event) => {
     if (event.messageType !== "user" || !sessionHookEnabled()) {
