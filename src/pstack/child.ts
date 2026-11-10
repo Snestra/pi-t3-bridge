@@ -20,7 +20,7 @@ import {
   unknown,
 } from "@earendil-works/pi-schema";
 
-import { bashTimeoutSeconds } from "../bridge/bash-timeout.ts";
+import { readConfig } from "../bridge/config.ts";
 import { appendLedger } from "../bridge/ledger.ts";
 import { isDelegatedChild, ownThreadId } from "../bridge/thread.ts";
 import { incompleteBrief, sessionBrief } from "./brief.ts";
@@ -347,7 +347,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
       const { exit } = await runAcceptance(
         brief.acceptance,
         ctx.cwd,
-        bashTimeoutSeconds()
+        readConfig().bashTimeoutSeconds
       );
 
       state.before = exit;
@@ -517,7 +517,11 @@ export const registerChild = (pi: ExtensionAPI): void => {
     const accepted =
       brief.acceptance === undefined
         ? { exit: 2, tail: "no acceptance command" }
-        : await runAcceptance(brief.acceptance, ctx.cwd, bashTimeoutSeconds());
+        : await runAcceptance(
+            brief.acceptance,
+            ctx.cwd,
+            readConfig().bashTimeoutSeconds
+          );
 
     const changed = await changedFiles(ctx.cwd);
 

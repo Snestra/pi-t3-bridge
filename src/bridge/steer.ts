@@ -155,10 +155,6 @@ const appendSteerLog = (line: SteerLogLine): void => {
   }
 };
 
-// On unless the config says otherwise. Shadow judges and logs but never
-// changes the session.
-const steerMode = () => readConfig().steer ?? "on";
-
 const mastNote = (mode: MastMode, probability: number) => ({
   content: `MAST · ${mode.label} (p=${probability.toFixed(2)}): ${mode.note}`,
   customType: MAST_NOTE,
@@ -331,7 +327,7 @@ export const registerSteer = (
 
     turn += 1;
 
-    const mode = steerMode();
+    const mode = readConfig().steer;
     const every = mastEvery();
 
     if (mode === "off" || turn % every !== 0) {
@@ -394,7 +390,7 @@ export const registerSteer = (
     event: AgentBeforeSettleEvent,
     ctx: ExtensionContext
   ): Promise<BoundaryResult | undefined> => {
-    const mode = steerMode();
+    const mode = readConfig().steer;
 
     // An error outcome is left to accounts.ts, which schedules the resume.
     if (mode === "off" || event.outcome !== "completed") {

@@ -8,15 +8,12 @@ import {
   symlinkSync,
   unlinkSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 
+import { configHome } from "../bridge/config.ts";
 import type { PstackPaths } from "./resources.ts";
 
 const SESSION_HOOK_OFF = /^session hook:\s*off\s*$/mu;
-
-const configHome = (): string =>
-  process.env.XDG_CONFIG_HOME?.trim() || path.join(homedir(), ".config");
 
 export const modelSheetPath = (): string =>
   path.join(configHome(), "pi-t3-bridge", "models.md");

@@ -11,7 +11,6 @@ import { savedCredential, signInLocally, tokenRejected } from "./t3-sign-in.ts";
 const SERVER_NAME = "t3";
 const TOOL_PREFIX = `mcp__${SERVER_NAME}__`;
 const STATUS_KEY = "t3-mcp";
-const DEFAULT_URL = "http://127.0.0.1:3773/mcp";
 const PROBE_TIMEOUT_MS = 1500;
 const REFRESH_INTERVAL_MS = 3000;
 
@@ -96,7 +95,7 @@ const statusText = (state: T3McpState): string => {
   }
 };
 
-const serverUrl = (): string => readConfig().mcpUrl ?? DEFAULT_URL;
+const serverUrl = (): string => readConfig().mcpUrl;
 
 const metadataUrl = (url: string): string =>
   new URL("/.well-known/oauth-protected-resource", url).href;
