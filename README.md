@@ -150,7 +150,7 @@ any state
 
 Goals live in `pi-t3-goal` session entries, not a machine-wide database. Each snapshot stores `version: 1` and either `goal: null` or an objective with its ID, revision, status, reason, and evidence. Loading, reloading, cloning, or navigating a session pauses a restored active goal. Compaction preserves the current state. Only an explicit resume command reactivates a paused goal.
 
-Approval gates, unanswered questions, and pending children hold automatic continuation. A question dismissal or timeout needs a new user answer. A child wake or account recovery does not count as that answer. Goal-owned runs do not receive competing stop reminders, but MAST observations still run.
+Approval gates, unanswered questions, and pending children hold automatic continuation. A question dismissal or timeout needs a new user answer. A child wake or account recovery does not count as that answer.
 
 `update_goal` requires `goalId`, `revision`, `status`, `reason`, and `evidence`. The model can set only `complete` or `blocked` on an active goal. Completion requires evidence records with `requirement`, `source`, and `result`. A blocker requires a reason. The model is instructed to wait for three consecutive cycles with the same blocker. Runtime failures can stop work immediately.
 
@@ -160,7 +160,9 @@ Evidence records make completion inspectable. They do not prove that an arbitrar
 
 ### Plan approval
 
-When a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide. The bridge does not use T3's Plan mode. The agent asks for approval with the `plan` tool whenever a task calls for a plan. If the card fails to show, the gate opens again, so a lost card never leaves the thread blocked.
+T3's own Plan mode does nothing in a Pi thread. T3 sends Pi only the runtime mode, not the Plan setting, and a native plan card would need a change to T3's Pi adapter. Use the `plan` tool instead.
+
+When a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide. The agent asks for approval with the `plan` tool whenever a task calls for a plan. If the card fails to show, the gate opens again, so a lost card never leaves the thread blocked.
 
 ```mermaid
 stateDiagram-v2
@@ -220,49 +222,22 @@ The main thread's own account can also run out, and then the agent can't call an
 
 The bridge stops any shell command after 300 seconds, in the main thread and in children, so a test suite that hangs holds up the chat for at most 5 minutes. A command can ask for a shorter timeout but not a longer one. You can change the limit with `bashTimeoutSeconds` in the settings file.
 
-### Stop checks
+### Reply checks
 
-When a run is about to stop, the bridge asks a classifier model how the run ended, and it gives the agent one more turn if the agent gave up partway. The checks come from [pi-mast-steer](https://github.com/dbreunig/pi-mast-steer).
+When a run is about to stop, the bridge checks the agent's last reply with two fixed rules. No model judges the reply, so the same reply always gets the same result.
 
 ```text
 on(run about to stop)
-  ask the classifier how the run ended
-  if the classifier is down or takes more than 15 seconds
-    let the run stop
-  if the agent gave up partway
-    if a stop note was already sent for the current prompt
-      log the check as capped in steer.jsonl and let the run stop
-    add a note
-    continue for one more turn
-
-every 3 turns
-  ask the classifier whether the agent shows a known failure
-  if one is likely
-    add a note that names it
+  if the reply hit the output limit
+    add a note and continue, at most twice per prompt
+  else if the reply's last 5 lines of prose ask a question
+      and the ask tool is on, the client can show cards,
+      and the session is not a delegated child
+    add a note that tells the agent to ask it with the ask tool
+    continue once per prompt
 ```
 
-The known failures come from MAST, a published list of the ways agent runs fail:
-
-- The agent repeats a step that already finished.
-- The agent doesn't know when to stop.
-- The agent drifts away from the task.
-- The agent breaks the brief, or says one thing and does another.
-
-The bridge picks the classifier in the order below. It doesn't fall back to the next choice when the chosen classifier fails.
-
-```text
-pick classifier
-  if classifierModel is set in the settings file
-    use that chat model, or report an error if it's not in the catalog or has no auth
-  else if typesafe/jev-latest is in your Pi model catalog and you have access
-    use Jev
-  else
-    use the session model
-```
-
-A chat model answers the same questions through one tool call. Its probabilities are its own guesses, and the thresholds were fitted on Jev, so a chat model may add notes more often or less often than Jev. A chat model also costs tokens on your account, with one call for each stop check and one call every 3 turns. Set `steer` to `"shadow"` to log the verdicts without changing the session, or set it to `"off"` to turn the checks off.
-
-A check that the deadline cuts off is logged in `steer.jsonl` with `skipped` set to `"deadline"`, and it never shows a warning: the bridge cut the request off on purpose, so the classifier is not down.
+A question typed in plain text ends the run, and nobody answers it. The note sends the agent back to put the same question on an `ask` card, which waits for your answer. The check skips code blocks and inline code, so a `?` in a regex or a shell command doesn't count.
 
 ## The pstack extension
 
@@ -397,9 +372,7 @@ The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Ev
 {
   "bashTimeoutSeconds": 300,
   "childSandbox": "on",
-  "classifierModel": "anthropic/claude-sonnet-4-5",
-  "mcpUrl": "http://127.0.0.1:3773/mcp",
-  "steer": "on"
+  "mcpUrl": "http://127.0.0.1:3773/mcp"
 }
 ```
 
@@ -407,9 +380,7 @@ The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Ev
 | --- | --- | --- |
 | `bashTimeoutSeconds` | `300` | The longest a shell command can run, in seconds. |
 | `childSandbox` | `"on"` | With `"on"`, a child's `bash` is blocked when no sandbox can run. With `"off"`, commands run with no sandbox on every platform, and the child's report says `SANDBOX: off`. |
-| `classifierModel` | unset | The chat model that runs the stop checks, as `"provider/modelId"`. The model ID may contain more slashes. |
 | `mcpUrl` | `http://127.0.0.1:3773/mcp` | The T3 MCP address to use from a terminal. A change applies on the next `/new`, `/reload`, or Pi start. |
-| `steer` | `"on"` | The stop checks, as `"on"`, `"shadow"`, or `"off"`. |
 
 The package writes its files in the places below. If `XDG_CONFIG_HOME` or `XDG_STATE_HOME` is set, the folder it names replaces `~/.config` or `~/.local/state`.
 
@@ -420,7 +391,6 @@ The package writes its files in the places below. If `XDG_CONFIG_HOME` or `XDG_S
 ~/.local/state/pi-t3/
 ├── accounts.json              # model families that are out of usage
 ├── ledger.jsonl               # one line per delegated brief, with cost and report
-├── steer.jsonl                # one line per stop check verdict, with no transcript text
 ├── t3-mcp.json                # the T3 MCP token, for Pi in a terminal
 └── pstack-overlay/            # pstack skills with the Pi changes applied
 ```
@@ -429,7 +399,7 @@ Earlier releases kept the state and the model sheet under `t3-pstack`, and the f
 
 ## Data handling
 
-The package has no server and sends no telemetry. The stop checks send parts of the session transcript to the classifier's provider, and any file a skill asks the agent to read goes to your model provider. Scripts run on your machine, and the PR tools use your GitHub CLI login.
+The package has no server and sends no telemetry. Any file a skill asks the agent to read goes to your model provider. Scripts run on your machine, and the PR tools use your GitHub CLI login.
 
 ## Development
 

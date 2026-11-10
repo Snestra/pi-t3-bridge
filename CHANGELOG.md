@@ -4,16 +4,20 @@
 
 `/goal <objective>` saves one objective on the session branch and keeps the agent working until it reports completion with evidence, or a blocker. `get_goal` and `update_goal` let the agent read and report on it. The README section "Saved goals" lists the commands.
 
+The stop checks and MAST checks are gone, along with the `steer` and `classifierModel` settings and the `steer.jsonl` log. Saved goals now keep a run going until it has evidence, and they do it without a classifier. Old settings files that still set these keys keep working, and you can delete `~/.local/state/pi-t3/steer.jsonl`.
+
+Two fixed reply checks replace them. A reply that hits the output limit still continues, as before. A reply that ends by asking you a question in plain text now goes back to the agent once, with a note to ask it on an `ask` card, and the `ask` tool tells the agent to use it for every question. The README section "Reply checks" has the rules.
+
+The README now says that T3's own Plan mode does nothing in a Pi thread, because T3 doesn't send the Plan setting to Pi.
+
 The plan gate no longer has a Plan mode state that nothing set. The `plan` tool works as before, and when its card fails to show, the gate opens again instead of blocking write tools until the next plan.
 
 These problems are fixed:
 
-- A stop or MAST check that ran past its deadline showed "steer unavailable", as if the classifier were down. The deadline is now 15 seconds, and a check it cuts off is logged in `steer.jsonl` as skipped, with no warning. Thanks to DeathSurfing (#26).
 - A child's acceptance command that timed out lost its output and its "(timed out)" note in the report.
 - A child working in a subdirectory of a repository, or writing a file with a space in its name, was reported as writing outside its brief.
 - Two Pi processes that started at the same time could fail while building the pstack copy.
 - One failed T3 lookup made a delegated child look like your own session until it restarted.
-- The MAST check "doesn't know when to stop" stayed silent for the rest of a prompt after it was held back once.
 - Status refreshes for Pi in a terminal could overlap and reconnect twice.
 - Two chats that marked model families out at the same moment could lose one of the marks. `accounts.json` is now written under a lock, using the new dependency `proper-lockfile`.
 - A settings file that exists but can't be read, e.g. for lack of permission, was ignored without a warning.

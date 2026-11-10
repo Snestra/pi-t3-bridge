@@ -107,7 +107,6 @@ const runTurn = async ({
 
   const { session, faux } = await createSession({
     extensionFactories: [catalogTool(catalog, bridged), delegateTool],
-    jev: false,
     name,
     root: temporary,
   });

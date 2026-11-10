@@ -201,7 +201,6 @@ const startSession = async ({ name, ui }) => {
 
   const { loader, session } = await createSession({
     extensionFactories: [mcpExtension],
-    jev: false,
     name,
     root: temporary,
   });

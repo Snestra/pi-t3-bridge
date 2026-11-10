@@ -19,12 +19,12 @@ process.env.T3_MCP_URL = "http://127.0.0.1:9/mcp";
 
 process.env.XDG_CONFIG_HOME = path.join(temporary, "config");
 
-// These tests do not exercise the stop judge, so keep it away from the real Jev.
+// Keep the settings of the machine that runs the tests out of them.
 const configFile = path.join(temporary, "config", "pi-t3", "config.json");
 
 await mkdir(path.dirname(configFile), { recursive: true });
 
-await writeFile(configFile, JSON.stringify({ steer: "off" }));
+await writeFile(configFile, "{}");
 
 after(async () => {
   if (previousXdgConfigHome === undefined) {
@@ -121,7 +121,6 @@ const startSession = async ({ answers, name, renderCalls }) => {
       renderCalls === undefined
         ? [stubTools]
         : [stubTools, fakeHtmlRender(renderCalls)],
-    jev: false,
     name,
     root: temporary,
   });
