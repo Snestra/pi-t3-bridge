@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import { materializePstack, overlayDir } from "./overlay.ts";
+import { materializePstack } from "./overlay.ts";
 
 export interface PstackPaths {
   readonly extensionDir: string;
@@ -33,7 +33,10 @@ export const pstackPaths = (): PstackPaths => {
   const extensionDir = path.resolve(import.meta.dirname, "../..");
   const upstreamRoot = path.join(extensionDir, "pstack");
 
-  const pstackRoot = materializePstack(upstreamRoot, overlayDir(extensionDir));
+  const pstackRoot = materializePstack(
+    upstreamRoot,
+    path.join(extensionDir, "overlay")
+  );
 
   cached = {
     extensionDir,

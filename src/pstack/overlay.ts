@@ -51,10 +51,7 @@ const COPIED_ENTRIES = [
   "hooks/session-start-context.md",
 ] as const;
 
-export const overlayDir = (extensionDir: string): string =>
-  path.join(extensionDir, "overlay");
-
-export const loadManifest = (dir: string): OverlayManifest => {
+const loadManifest = (dir: string): OverlayManifest => {
   const manifestPath = path.join(dir, "overlay.json");
   const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
 
