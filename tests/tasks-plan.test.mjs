@@ -197,18 +197,28 @@ test("tasks renders the full task list as an inline T3 card", async () => {
     const longStep =
       "/Users/example/project/src/components/a-very-long-unbroken-file-path-that-keeps-going/tasks.ts";
 
-    const [longPublished] = await turn([
+    const explanation =
+      "The list changed because the first step finished and the remaining work was split.";
+
+    const [shortPublished, longPublished] = await turn([
       call("tasks", {
-        explanation:
-          "The list changed because the first step finished and the remaining work was split.",
+        explanation,
+        steps: [{ id: "long", status: "in_progress", text: "src/tasks.ts" }],
+      }),
+      call("tasks", {
+        explanation,
         steps: [{ id: "long", status: "in_progress", text: longStep }],
       }),
       done(),
     ]);
 
+    assert.equal(shortPublished.isError, false, text(shortPublished));
     assert.equal(longPublished.isError, false, text(longPublished));
-    assert.equal(renderCalls.length, 2);
-    assert.ok(renderCalls[1].height > 110 + 1 * 32);
+    assert.equal(renderCalls.length, 3);
+    assert.ok(
+      renderCalls[2].height > renderCalls[1].height,
+      "a step that wraps gets a taller card"
+    );
   } finally {
     session.dispose();
   }
@@ -339,7 +349,7 @@ test("plan blocks file changes until the user approves", async () => {
 
 test("plan sizes its card for wrapped plan text", async () => {
   const renderCalls = [];
-  const answers = ["Approve"];
+  const answers = ["Approve", "Approve"];
 
   const { session, turn } = await startSession({
     answers,
@@ -351,15 +361,20 @@ test("plan sizes its card for wrapped plan text", async () => {
     const longLine =
       "1. Update the task card and the plan card so that long file paths wrap inside the card and the frame is tall enough to show every wrapped line.";
 
-    const [approved] = await turn([
+    const [short, approved] = await turn([
+      call("plan", { plan: "1. Wrap.", title: "Wrap the cards" }),
       call("plan", { plan: longLine, title: "Wrap the cards" }),
       done(),
     ]);
 
+    assert.equal(short.isError, false, text(short));
     assert.equal(approved.isError, false, text(approved));
-    assert.equal(renderCalls.length, 1);
-    assert.doesNotMatch(renderCalls[0].html, /Waiting for approval/u);
-    assert.ok(renderCalls[0].height > 100 + 1 * 20);
+    assert.equal(renderCalls.length, 2);
+    assert.doesNotMatch(renderCalls[1].html, /Waiting for approval/u);
+    assert.ok(
+      renderCalls[1].height > renderCalls[0].height,
+      "a plan line that wraps gets a taller card"
+    );
   } finally {
     session.dispose();
   }

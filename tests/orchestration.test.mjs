@@ -1064,7 +1064,7 @@ test("a child that fills its disk with write and then reports is BLOCKED", async
   }
 });
 
-test("a batch of parallel bash calls scans the workdir at most twice", async () => {
+test("a batch of parallel bash calls queues at most one extra disk scan", async () => {
   const bin = path.join(temporary, "count-du-bin");
   const log = path.join(temporary, "count-du.log");
 
