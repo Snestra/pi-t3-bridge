@@ -210,7 +210,7 @@ const prepareBinds = (
     try {
       mkdirSync(root, { recursive: true });
     } catch {
-      continue;
+      // Left unbound.
     }
   }
 

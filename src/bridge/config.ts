@@ -57,7 +57,7 @@ interface Loaded {
 export const configHome = (): string =>
   process.env.XDG_CONFIG_HOME?.trim() || path.join(homedir(), ".config");
 
-const configPath = (): string =>
+export const configPath = (): string =>
   path.join(configHome(), "pi-t3", "config.json");
 
 const configFile = compile(map(unknown()));

@@ -31,6 +31,7 @@ import {
 } from "../bridge/accounts.ts";
 import { t3Json, t3Text } from "../bridge/t3-json.ts";
 import { findT3Tool, isT3Tool } from "../bridge/t3-tasks.ts";
+import { SIZE_L_REFUSED } from "./brief.ts";
 import type { Size } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import type { Policy } from "./resources.ts";
@@ -531,9 +532,7 @@ const resolveJob = (
   }
 
   if (size === "L") {
-    throw new Error(
-      "Size L is too large to delegate: split the job into S or M tasks, or do it yourself."
-    );
+    throw new Error(SIZE_L_REFUSED);
   }
 
   if (size === undefined) {
@@ -666,34 +665,40 @@ const readCatalog = async (ctx: ExtensionToolContext): Promise<Catalog> => {
   return catalog;
 };
 
-const ComplexityOrJob = obj(
-  {
-    complexity: opt(ComplexitySchema),
-    job: opt(
-      str({
-        description:
-          "The job type from the routing table: mechanical, check, research, implement, hard, review, or design.",
-      })
-    ),
-    role: str({ description: "The pstack role name.", minLength: 1 }),
-    size: opt(
-      oneOf(["S", "M", "L"], {
-        description:
-          "S: 30 min or less and 5 files or fewer. M: 90 min or less and 15 files or fewer. L is refused: split it.",
-      })
-    ),
-  },
-  { open: true }
-);
+// The job types and size limits come from models.json, so the tool always
+// describes the table it routes with.
+const toolParameters = (policy: Policy) =>
+  obj(
+    {
+      complexity: opt(ComplexitySchema),
+      job: opt(
+        str({
+          description: `The job type from the routing table: ${Object.keys(policy.jobs).join(", ")}.`,
+        })
+      ),
+      role: str({ description: "The pstack role name.", minLength: 1 }),
+      size: opt(
+        oneOf(["S", "M", "L"], {
+          description: `${Object.entries(policy.briefs.sizes)
+            .map(
+              ([size, limit]) =>
+                `${size}: ${limit.minutes} min or less and ${limit.files} files or fewer.`
+            )
+            .join(" ")} L is refused: split it.`,
+        })
+      ),
+    },
+    { open: true }
+  );
 
-const modelTool = (pi: ExtensionAPI) =>
+const modelTool = (pi: ExtensionAPI, policy: Policy) =>
   defineTool({
     annotations: { readOnlyHint: true },
     description:
       "Resolve the delegate_task target for a pstack role. Pass the role name with the job and size from the routing table, or the complexity when there is no job. Pass each returned target as delegate_task's target. kind inherit-parent means omit target, and kind blocked means the role cannot run.",
     execute: async (
       _toolCallId,
-      params: Static<typeof ComplexityOrJob>,
+      params: Static<ReturnType<typeof toolParameters>>,
       _signal,
       _onUpdate,
       ctx
@@ -709,7 +714,7 @@ const modelTool = (pi: ExtensionAPI) =>
           available: (modelFamily) => familyOpen(families[modelFamily]),
           catalog: await readCatalog(ctx),
           job: params.job,
-          policy: readPolicy(),
+          policy,
           sheet: readSheet(),
           size: params.size,
         }
@@ -724,12 +729,12 @@ const modelTool = (pi: ExtensionAPI) =>
     label: "Pstack model",
     name: "pstack_model",
     outputSchema: ResolutionSchema,
-    parameters: ComplexityOrJob,
+    parameters: toolParameters(policy),
     promptSnippet: "Resolve the delegate_task target for a pstack role.",
   });
 
 export const registerModelRouting = (pi: ExtensionAPI): void => {
-  pi.registerTool(modelTool(pi));
+  pi.registerTool(modelTool(pi, readPolicy()));
 
   pi.on("tool_call", (event) => {
     if (

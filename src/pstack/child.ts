@@ -20,7 +20,7 @@ import {
   unknown,
 } from "@earendil-works/pi-schema";
 
-import { readConfig } from "../bridge/config.ts";
+import { configPath, readConfig } from "../bridge/config.ts";
 import { appendLedger } from "../bridge/ledger.ts";
 import { isDelegatedChild, ownThreadId } from "../bridge/thread.ts";
 import { incompleteBrief, sessionBrief } from "./brief.ts";
@@ -412,7 +412,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
       if (wrapped === undefined) {
         return {
           block: true,
-          reason: `No sandbox can run for this shell (${unavailableReason(state.sandbox)}), so shell commands are blocked. The user can install \`bubblewrap\`, set kernel.apparmor_restrict_unprivileged_userns=0, or set "childSandbox": "off" in ~/.config/pi-t3/config.json. Use no more shell commands. Report STATUS: BLOCKED (no sandbox).`,
+          reason: `No sandbox can run for this shell (${unavailableReason(state.sandbox)}), so shell commands are blocked. The user can install \`bubblewrap\`, set kernel.apparmor_restrict_unprivileged_userns=0, or set "childSandbox": "off" in ${configPath()}. Use no more shell commands. Report STATUS: BLOCKED (no sandbox).`,
         };
       }
 

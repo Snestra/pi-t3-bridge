@@ -36,6 +36,9 @@ const TASK_HEADING = /^# Task:/mu;
 // The user's approval of reasoning above high, as a whole message or line.
 const APPROVAL_LINE = /^\s*allow (?:xhigh|max)\b/imu;
 
+export const SIZE_L_REFUSED =
+  "Size L is too large to delegate: split it into S or M tasks, or do it yourself.";
+
 const BROAD_PATHS = new Set(["*", "**", "**/*", "/", ".", "./", "~"]);
 
 const number = (pattern: RegExp, text: string): number | undefined => {
@@ -142,9 +145,7 @@ const headerProblems = (brief: Brief, policy: Policy): string[] => {
   if (brief.size === undefined) {
     problems.push('The header needs "Size: S" or "Size: M".');
   } else if (brief.size === "L") {
-    problems.push(
-      "Size L is too large to delegate: split it into S or M tasks, or do it yourself."
-    );
+    problems.push(SIZE_L_REFUSED);
   }
 
   if (brief.minutes === undefined || brief.minutes <= 0) {

@@ -17,10 +17,8 @@ import type { Static } from "@earendil-works/pi-schema";
 import { materializePstack } from "./overlay.ts";
 
 export interface PstackPaths {
-  readonly extensionDir: string;
   readonly pstackRoot: string;
   readonly skillsDir: string;
-  readonly upstreamRoot: string;
 }
 
 let cached: PstackPaths | undefined;
@@ -39,10 +37,8 @@ export const pstackPaths = (): PstackPaths => {
   );
 
   cached = {
-    extensionDir,
     pstackRoot,
     skillsDir: path.join(pstackRoot, "skills"),
-    upstreamRoot,
   };
 
   return cached;
