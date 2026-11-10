@@ -164,6 +164,7 @@ export const appendSteerLog = (line: {
   readonly nudged: boolean;
   readonly probabilities?: Readonly<Record<string, number>>;
   readonly session: string;
+  readonly skipped?: "deadline";
   readonly turn?: number;
   readonly verdict?: {
     readonly handoffMissing?: number | undefined;

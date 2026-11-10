@@ -227,7 +227,7 @@ When a run is about to stop, the bridge asks a classifier model how the run ende
 ```text
 on(run about to stop)
   ask the classifier how the run ended
-  if the classifier is down or takes more than 5 seconds
+  if the classifier is down or takes more than 15 seconds
     let the run stop
   if the agent gave up partway
     if a stop note was already sent for the current prompt
@@ -261,6 +261,8 @@ pick classifier
 ```
 
 A chat model answers the same questions through one tool call. Its probabilities are its own guesses, and the thresholds were fitted on Jev, so a chat model may add notes more often or less often than Jev. A chat model also costs tokens on your account, with one call for each stop check and one call every 3 turns. Set `steer` to `"shadow"` to log the verdicts without changing the session, or set it to `"off"` to turn the checks off.
+
+A check that the deadline cuts off is logged in `steer.jsonl` with `skipped` set to `"deadline"`, and it never shows a warning: the bridge cut the request off on purpose, so the classifier is not down.
 
 ## The pstack extension
 

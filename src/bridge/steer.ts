@@ -47,8 +47,10 @@ type NudgeGroup = keyof typeof NUDGE_LIMITS;
 
 const UNAWARE_OF_TERMINATION = "1.5";
 
-// A judge that takes longer must not hold up the end of a run.
-const JUDGE_TIMEOUT_MS = 5000;
+// A judge that takes longer must not hold up the end of a run. Without Jev the
+// judge is a chat model reading a 50 KiB prompt, and those calls took 1.7-5.9 s:
+// a 5 s ceiling cut off most of them, so 15 s leaves room for the slow ones.
+const JUDGE_TIMEOUT_MS = 15_000;
 
 type NudgeKind = "early" | "handoff" | "length";
 
@@ -299,6 +301,23 @@ export const registerSteer = (
     }
   };
 
+  // A judge the user cancelled drops the check quietly. One the deadline cut
+  // off is skipped and logged, because the classifier is not down. Any other
+  // error is logged and warned about once.
+  const judgeFailed = (
+    ctx: ExtensionContext,
+    signal: AbortSignal,
+    line: Parameters<typeof appendSteerLog>[0],
+    error: string
+  ): void => {
+    if (!signal.aborted) {
+      appendSteerLog({ ...line, error });
+      warnOnce(ctx, error);
+    } else if (!ctx.signal?.aborted) {
+      appendSteerLog({ ...line, skipped: "deadline" });
+    }
+  };
+
   // MAST state, per prompt.
   let armed = new Set<string>();
   let turn = 0;
@@ -392,13 +411,6 @@ export const registerSteer = (
       return;
     }
 
-    const verdict = await judgeMast(ctx, excerpt, judgeSignal(ctx));
-
-    // The user cancelled while the judge ran: drop the check quietly.
-    if ("error" in verdict && ctx.signal?.aborted) {
-      return;
-    }
-
     const base = {
       kind: "mast",
       mode,
@@ -407,9 +419,12 @@ export const registerSteer = (
       turn,
     };
 
+    const signal = judgeSignal(ctx);
+
+    const verdict = await judgeMast(ctx, excerpt, signal);
+
     if ("error" in verdict) {
-      appendSteerLog({ ...base, error: verdict.error, nudged: false });
-      warnOnce(ctx, verdict.error);
+      judgeFailed(ctx, signal, { ...base, nudged: false }, verdict.error);
 
       return;
     }
@@ -486,20 +501,17 @@ export const registerSteer = (
       return;
     }
 
-    const verdict = await judgeStop(ctx, input, judgeSignal(ctx));
+    const signal = judgeSignal(ctx);
 
-    // The user cancelled while the judge ran: drop the check quietly.
+    const verdict = await judgeStop(ctx, input, signal);
+
     if ("error" in verdict) {
-      if (!ctx.signal?.aborted) {
-        appendSteerLog({
-          ...base,
-          error: verdict.error,
-          kind: "stop",
-          nudged: false,
-        });
-
-        warnOnce(ctx, verdict.error);
-      }
+      judgeFailed(
+        ctx,
+        signal,
+        { ...base, kind: "stop", nudged: false },
+        verdict.error
+      );
 
       return;
     }
