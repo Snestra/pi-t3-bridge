@@ -26,10 +26,13 @@ const HOLD_ENTRY = "pi-t3-goal-question";
 const INSTRUCTION = "pi-t3-goal-instruction";
 const WORDS = /^(?<word>\S+)(?:\s+(?<rest>[\s\S]*))?$/u;
 
-const AUTOMATIC_INPUT =
-  /(?:\[pi-t3-resume [\w-]+\]|Delegated task \S+ .*?\[[a-z_]+\])/u;
-
 const CHILD_WAKE = /Delegated task \S+ .*?\[[a-z_]+\]/u;
+
+const AUTOMATIC_INPUT = new RegExp(
+  String.raw`\[pi-t3-resume [\w-]+\]|${CHILD_WAKE.source}`,
+  "u"
+);
+
 const ASK_TOOL = /(?:^|__)ask$/u;
 const TEXT = str({ minLength: 1, pattern: "\\S" });
 const REVISION = int({ maximum: Number.MAX_SAFE_INTEGER, minimum: 1 });
@@ -169,7 +172,7 @@ interface GoalCoordination {
   readonly waitingOnChild: (ctx: ExtensionContext) => boolean;
 }
 
-export interface GoalRuntime {
+interface GoalRuntime {
   readonly canRecover: (ctx: ExtensionContext) => boolean;
   readonly settle: (event: AgentSettledEvent, ctx: ExtensionContext) => void;
   readonly ownsRun: () => boolean;

@@ -20,7 +20,7 @@ import type { Static } from "@earendil-works/pi-schema";
 import { classifyFailure } from "./failures.ts";
 import type { Classified } from "./failures.ts";
 import type { GoalIdentity } from "./goal.ts";
-import { scheduleResume } from "./resume.ts";
+import { NO_RESET_MS, scheduleResume } from "./resume.ts";
 import { readFamilies, updateFamily } from "./state.ts";
 import type { FamilyRecord } from "./state.ts";
 import { callT3Tool, insideT3 } from "./t3-http.ts";
@@ -65,11 +65,6 @@ const ERROR_CHARS = 400;
 // A probe that has not settled in this long is treated as lost, so a crashed
 // chat cannot hold a family closed forever.
 const PROBE_TIMEOUT_MS = 2 * 60 * 60_000;
-
-// A usage limit that names no reset time, or one the user reported without
-// one, holds the family out this long. The next task then probes the family,
-// and another limit marks it out again, so no mark waits on a person.
-const NO_RESET_MS = 60 * 60_000;
 
 const USAGE_LIMIT_TITLE = "Usage limit reached";
 
@@ -175,11 +170,11 @@ export const accountLines = (
       return `${name}: ${exhaustedCause(record, name)}, since ${shortTime(record.since)}, until ${shortTime(resetTime(record))}.`;
     });
 
-const recordFailure = (
+const recordFailure = async (
   modelFamily: string,
   classified: Classified,
   source: "delegate" | "user"
-): void => {
+): Promise<void> => {
   if (classified.kind === "other") {
     return;
   }
@@ -195,7 +190,7 @@ const recordFailure = (
     record.resetAt = classified.resetAt;
   }
 
-  updateFamily(modelFamily, record);
+  await updateFamily(modelFamily, record);
 };
 
 const ThreadReadSchema = obj(
@@ -337,12 +332,12 @@ const settleChild = async (
   const record = readFamilies()[childFamily];
 
   if (outcome.failure.kind !== "other") {
-    recordFailure(childFamily, outcome.failure, "delegate");
+    await recordFailure(childFamily, outcome.failure, "delegate");
   } else if (
     record?.state === "probing" &&
     record.childThreadId === childThreadId
   ) {
-    updateFamily(childFamily);
+    await updateFamily(childFamily);
   }
 };
 
@@ -388,7 +383,7 @@ const delegateResult = compile(obj({ childThreadId: str() }, { open: true }));
 const sessionFamily = (ctx: ExtensionContext): string | undefined =>
   ctx.model === undefined ? undefined : family(ctx.model.id);
 
-const isAssistantError = compile(
+const isAssistantMessage = compile(
   obj(
     {
       errorMessage: opt(str()),
@@ -455,7 +450,7 @@ export const registerAccounts = (
     }
   });
 
-  pi.on("tool_result", (event, ctx) => {
+  pi.on("tool_result", async (event, ctx) => {
     if (!DELEGATE_TOOLS.has(event.toolName) || event.isError) {
       return;
     }
@@ -483,7 +478,7 @@ export const registerAccounts = (
     const now = Date.now();
 
     if (resetPassed(record, now) || probeLost(record, now)) {
-      updateFamily(childFamily, {
+      await updateFamily(childFamily, {
         childThreadId: result.childThreadId,
         since: new Date(now).toISOString(),
         state: "probing",
@@ -515,7 +510,7 @@ export const registerAccounts = (
       (message) => (message as { role?: string }).role === "assistant"
     );
 
-    if (!isAssistantError(last)) {
+    if (!isAssistantMessage(last)) {
       lastRun = undefined;
     } else if (last.stopReason === "error") {
       lastRun = {
@@ -543,7 +538,7 @@ export const registerAccounts = (
 
     if (run.kind === "answered") {
       if (readFamilies()[run.family] !== undefined) {
-        updateFamily(run.family);
+        await updateFamily(run.family);
       }
 
       return;
@@ -551,7 +546,7 @@ export const registerAccounts = (
 
     const classified = classifyFailure({ message: run.message });
 
-    recordFailure(run.family, classified, "delegate");
+    await recordFailure(run.family, classified, "delegate");
 
     if (classified.kind !== "other" && !(await isDelegatedChild())) {
       await scheduleResume(pi, ctx, run.family, classified, run.goal);
@@ -569,7 +564,7 @@ export const registerAccounts = (
         throw new Error(`"${reset}" is not a date and time.`);
       }
 
-      recordFailure(
+      await recordFailure(
         exhaustedFamily,
         reset === undefined
           ? { kind: "exhausted" }
@@ -589,7 +584,7 @@ export const registerAccounts = (
     handler: async (args, ctx) => {
       const recovered = parseFamily(args.trim(), ctx, { recorded: true });
 
-      updateFamily(recovered);
+      await updateFamily(recovered);
 
       if (ctx.hasUI) {
         ctx.ui.notify(`${recovered} marked as usable again.`, "info");

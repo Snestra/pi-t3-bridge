@@ -14,7 +14,7 @@ import { isDelegated, ownThreadId } from "./thread.ts";
 // only local files, so asking costs no tokens and no T3 calls. A child can
 // write several lines, such as its cost and a report, and later values win.
 
-export interface Usage {
+interface Usage {
   cacheRead: number;
   cacheWrite: number;
   cost: number;
@@ -103,7 +103,7 @@ const childLine = (threadId: string, line: LedgerLine | undefined): string => {
   ].join("  ");
 };
 
-const childLines = (
+const mergedChildLine = (
   ledger: readonly LedgerLine[],
   threadId: string
 ): LedgerLine | undefined => {
@@ -118,7 +118,7 @@ const usageText = (ctx: ExtensionContext): string => {
   const ledger = readLedger();
 
   const children = delegated.map((threadId) => ({
-    line: childLines(ledger, threadId),
+    line: mergedChildLine(ledger, threadId),
     threadId,
   }));
 
@@ -144,9 +144,6 @@ const usageText = (ctx: ExtensionContext): string => {
 };
 
 export const registerUsage = (pi: ExtensionAPI): void => {
-  // The session's own T3 thread ID, asked once.
-  let threadId: Promise<string | null> | undefined;
-
   // A delegated child records what it cost, so its parent can report it.
   pi.on("message_end", async (event, ctx) => {
     const { message } = event;
@@ -155,9 +152,7 @@ export const registerUsage = (pi: ExtensionAPI): void => {
       return;
     }
 
-    threadId ??= ownThreadId();
-
-    const own = await threadId;
+    const own = await ownThreadId();
 
     if (own === null || !isDelegated(own)) {
       return;

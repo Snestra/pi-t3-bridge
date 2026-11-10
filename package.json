@@ -2,7 +2,7 @@
   "name": "pi-t3-bridge",
   "version": "0.9.1",
   "private": true,
-  "description": "Pi extension adapter for t3-pstack inside T3 Code.",
+  "description": "Pi extension adapter for pstack and tstack inside T3 Code.",
   "keywords": [
     "pi-extension",
     "pi-package",
@@ -33,12 +33,14 @@
     "@earendil-works/pi-schema": "1.5.0",
     "commander": "^15.0.0",
     "marked": "18.0.11",
-    "pele": "1.13.0"
+    "pele": "1.13.0",
+    "proper-lockfile": "4.1.2"
   },
   "devDependencies": {
     "@earendil-works/pi-ai": "1.5.0",
     "@earendil-works/pi-coding-agent": "1.5.0",
     "@types/node": "^26.6.5",
+    "@types/proper-lockfile": "^4.1.4",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
     "testcontainers": "^12.2.1",

@@ -233,7 +233,7 @@ export const registerT3Mcp = (pi: ExtensionAPI): void => {
           tool.name.startsWith(TOOL_PREFIX) && tool.exposure !== "hidden"
       ).length;
 
-  const refresh = async (ctx: ExtensionContext): Promise<void> => {
+  const refreshOnce = async (ctx: ExtensionContext): Promise<void> => {
     if (!ctx.hasUI) {
       return;
     }
@@ -277,6 +277,24 @@ export const registerT3Mcp = (pi: ExtensionAPI): void => {
     firstCheck = false;
 
     ctx.ui.setStatus(STATUS_KEY, statusText(state));
+  };
+
+  // A probe can take longer than the timer interval, so a tick that finds a
+  // refresh running joins it instead of starting a second reconnect.
+  let refreshing: Promise<void> | undefined;
+
+  const runRefresh = async (ctx: ExtensionContext): Promise<void> => {
+    try {
+      await refreshOnce(ctx);
+    } finally {
+      refreshing = undefined;
+    }
+  };
+
+  const refresh = (ctx: ExtensionContext): Promise<void> => {
+    refreshing ??= runRefresh(ctx);
+
+    return refreshing;
   };
 
   const stopTimer = (): void => {

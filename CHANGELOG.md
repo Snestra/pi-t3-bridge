@@ -1,5 +1,24 @@
 # Change log
 
+## Unreleased
+
+`/goal <objective>` saves one objective on the session branch and keeps the agent working until it reports completion with evidence, or a blocker. `get_goal` and `update_goal` let the agent read and report on it. The README section "Saved goals" lists the commands.
+
+The plan gate no longer has a Plan mode state that nothing set. The `plan` tool works as before, and when its card fails to show, the gate opens again instead of blocking write tools until the next plan.
+
+These problems are fixed:
+
+- A child's acceptance command that timed out lost its output and its "(timed out)" note in the report.
+- A child working in a subdirectory of a repository, or writing a file with a space in its name, was reported as writing outside its brief.
+- Two Pi processes that started at the same time could fail while building the pstack copy.
+- One failed T3 lookup made a delegated child look like your own session until it restarted.
+- The MAST check "doesn't know when to stop" stayed silent for the rest of a prompt after it was held back once.
+- Status refreshes for Pi in a terminal could overlap and reconnect twice.
+- Two chats that marked model families out at the same moment could lose one of the marks. `accounts.json` is now written under a lock, using the new dependency `proper-lockfile`.
+- A settings file that exists but can't be read, e.g. for lack of permission, was ignored without a warning.
+
+`ledger.jsonl` and `steer.jsonl` move their older lines to a `.1` file at 10 MB, so neither grows without limit. The bundled `steer-*.json` and `models.json` files are read once per process instead of on every turn or tool call. The README now asks for Pi 1.5.0, which the package has needed since 0.7.0.
+
 ## 0.9.1, 8 November 2026
 
 GitHub Releases now provides an optional archive signed with Packslip. The README explains how to verify and install the archive. The existing git install is unchanged.

@@ -9,10 +9,18 @@ const isCapabilities = compile(
 // T3 gives each delegated task's thread an ID with this prefix.
 const DELEGATED_THREAD = "thread:delegated-task:";
 
+// The T3 thread a Pi process serves never changes, so the first answer is
+// kept. A failed lookup is not kept, and the next call asks T3 again.
+let knownThreadId: string | undefined;
+
 // orchestrator_capabilities names the calling thread as its parent, so a
 // session learns its own T3 thread ID from it. A parent finds a child's ledger
 // lines by that ID.
 export const ownThreadId = async (): Promise<string | null> => {
+  if (knownThreadId !== undefined) {
+    return knownThreadId;
+  }
+
   if (!insideT3()) {
     return null;
   }
@@ -20,7 +28,13 @@ export const ownThreadId = async (): Promise<string | null> => {
   try {
     const result = await callT3Tool("orchestrator_capabilities", {});
 
-    return isCapabilities(result) ? result.parentThreadId : null;
+    if (!isCapabilities(result)) {
+      return null;
+    }
+
+    knownThreadId = result.parentThreadId;
+
+    return knownThreadId;
   } catch {
     return null;
   }
