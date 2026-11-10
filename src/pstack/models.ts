@@ -21,18 +21,19 @@ import {
 import type { Static } from "@earendil-works/pi-schema";
 
 import {
-  family,
   parseEntry,
   parseSheet,
 } from "../../pstack/skills/setup-pstack/scripts/t3-sheet.mjs";
 import {
+  ACCOUNT_COMMAND,
+  family,
   familyOpen,
   readFamilies,
   settleChildren,
 } from "../bridge/accounts.ts";
 import { t3Json, t3Text } from "../bridge/t3-json.ts";
 import { findT3Tool, isT3Tool } from "../bridge/t3-tasks.ts";
-import { ACCOUNT_COMMAND } from "./brief.ts";
+import type { Size } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import type { Policy } from "./resources.ts";
 import { modelSheetPath } from "./session.ts";
@@ -435,8 +436,6 @@ const findRole = (policy: Policy, roleName: string): Role => {
   return role;
 };
 
-type JobSize = "S" | "M" | "L";
-
 const tierOf = (policy: Policy, model: string): Complexity | undefined => {
   const sizes = policy.routing.families[family(model)];
 
@@ -504,7 +503,7 @@ const resolvePanelJob = (
 const resolveJob = (
   role: Role,
   job: string,
-  size: JobSize | undefined,
+  size: Size | undefined,
   explicit: readonly Entry[],
   { available, catalog, notes, policy }: ResolveContext
 ): Resolution => {
@@ -625,7 +624,7 @@ const resolveRole = (
     job?: string | undefined;
     policy: Policy;
     sheet: string;
-    size?: JobSize | undefined;
+    size?: Size | undefined;
   }
 ): Resolution => {
   const role = findRole(policy, roleName);

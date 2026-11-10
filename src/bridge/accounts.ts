@@ -49,6 +49,11 @@ const ACCOUNT_ENTRY = "pi-t3-account";
 
 const FAMILIES = "accounts.json";
 
+// The commands that change the shared account state, as they appear in text:
+// at the start of a line, or after a space, quote or bracket. Inside a path
+// such as notes/t3-exhausted.md the slash follows a name, so it is not one.
+export const ACCOUNT_COMMAND = /(?<![\w.~/-])\/t3-(?:exhausted|recovered)\b/u;
+
 // A model's family is the first word of its ID's last part: claude, gpt, grok.
 export const family = (model: string): string =>
   model.split("/").pop()?.split("-")[0] ?? model;

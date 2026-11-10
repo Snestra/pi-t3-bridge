@@ -24,10 +24,11 @@ import { readConfig } from "../bridge/config.ts";
 import { appendLedger } from "../bridge/ledger.ts";
 import { isDelegatedChild, ownThreadId } from "../bridge/thread.ts";
 import { incompleteBrief, sessionBrief } from "./brief.ts";
-import type { Brief, BriefRules } from "./brief.ts";
+import type { Brief } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import {
   chooseSandbox,
+  quote,
   real,
   sandboxLabel,
   unavailableReason,
@@ -93,8 +94,6 @@ const allowedFile = (brief: Brief, relative: string): boolean =>
   relative.startsWith(SCRATCH) ||
   brief.files.some((file) => globToRegExp(file).test(relative));
 
-const quote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
-
 const duKb = async (target: string): Promise<number | undefined> => {
   try {
     // node_modules is left out: pnpm fills it from the store, so its size is
@@ -150,20 +149,11 @@ const isPathInput = compile(obj({ path: str() }, { open: true })).check;
 
 const isNumber = compile(num()).check;
 
-const readBriefRules = (): BriefRules => {
-  const { briefs, jobs } = readPolicy();
-
-  return {
-    jobs: Object.keys(jobs),
-    noWrites: briefs.noWrites,
-    sizes: briefs.sizes,
-  };
-};
-
 // Paths relative to the workdir, as the brief lists them. git prints paths
 // from the repository root, and -z keeps names with spaces unquoted. A rename
-// prints its new path, then its old path as a separate record.
-const changedFiles = async (cwd: string): Promise<string[]> => {
+// prints its new path, then its old path as a separate record. Undefined when
+// git cannot tell, so the report never claims a clean workdir it did not see.
+const changedFiles = async (cwd: string): Promise<string[] | undefined> => {
   try {
     const [{ stdout: prefix }, { stdout }] = await Promise.all([
       run("git", ["rev-parse", "--show-prefix"], { cwd }),
@@ -194,20 +184,20 @@ const changedFiles = async (cwd: string): Promise<string[]> => {
 
     return files;
   } catch {
-    return [];
+    return undefined;
   }
 };
 
 const reportStatus = (
   blocked: boolean,
   accepted: { exit: number },
-  outside: readonly string[]
+  outside: readonly string[] | undefined
 ): "BLOCKED" | "ISSUES" | "PASS" => {
   if (blocked) {
     return "BLOCKED";
   }
 
-  return accepted.exit === 0 && outside.length === 0 ? "PASS" : "ISSUES";
+  return accepted.exit === 0 && outside?.length === 0 ? "PASS" : "ISSUES";
 };
 
 const diskGrowthMb = (
@@ -228,10 +218,10 @@ interface Report {
   readonly accepted: { exit: number; tail: string };
   readonly before: number | undefined;
   readonly brief: Brief;
-  readonly changed: number;
+  readonly changed: number | undefined;
   readonly diskMb: number | undefined;
   readonly minutes: number;
-  readonly outside: readonly string[];
+  readonly outside: readonly string[] | undefined;
   readonly sandbox: Sandbox | undefined;
   readonly status: string;
 }
@@ -250,7 +240,9 @@ const reportBlock = (report: Report): string => {
     `STATUS: ${report.status}`,
     `ACCEPTANCE: \`${brief.acceptance ?? ""}\` -> exit ${accepted.exit}${before}`,
     ...(tail === "" ? [] : ["```text", tail, "```"]),
-    `FILES: ${report.changed} changed; outside the list: ${outside.length === 0 ? "none" : outside.join(", ")}`,
+    outside === undefined
+      ? "FILES: unknown (git status failed)"
+      : `FILES: ${report.changed} changed; outside the list: ${outside.length === 0 ? "none" : outside.join(", ")}`,
     `DISK: ${diskMb === undefined ? "unknown" : `+${diskMb.toFixed(1)} MB`} in the workdir (limit ${brief.diskMb ?? "?"} MB)`,
     `TIME: ${minutes.toFixed(1)} of ${brief.minutes ?? "?"} min`,
     `SANDBOX: ${sandboxLabel(sandbox)}`,
@@ -369,7 +361,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
     if (started === undefined) {
       // A delegated child whose brief is incomplete would otherwise run with
       // no sandbox and no limits, as if it were the user's own session.
-      const problems = incompleteBrief(ctx, readBriefRules());
+      const problems = incompleteBrief(ctx, readPolicy());
 
       if (problems === undefined) {
         return;
@@ -525,7 +517,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
 
     const changed = await changedFiles(ctx.cwd);
 
-    const outside = changed.filter((file) => !allowedFile(brief, file));
+    const outside = changed?.filter((file) => !allowedFile(brief, file));
     const diskMb = diskGrowthMb(await duKb(ctx.cwd), state.baselineKb);
 
     const minutes = (Date.now() - startedAt) / 60_000;
@@ -546,7 +538,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
       accepted,
       before: state.before,
       brief,
-      changed: changed.length,
+      changed: changed?.length,
       diskMb,
       minutes,
       outside,
@@ -562,7 +554,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
       exit: accepted.exit,
       job: brief.job ?? null,
       minutes: Number(minutes.toFixed(1)),
-      outside: outside.length,
+      outside: outside?.length ?? null,
       report: block,
       size: brief.size ?? null,
       status,

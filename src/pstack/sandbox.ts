@@ -47,7 +47,9 @@ export type Sandbox =
   | { kind: "sandbox-exec"; env: ChildEnv }
   | { kind: "unavailable"; reason: string };
 
-const quote = (text: string): string => `'${text.replaceAll("'", `'\\''`)}'`;
+// One shell word, whatever the text holds.
+export const quote = (text: string): string =>
+  `'${text.replaceAll("'", `'\\''`)}'`;
 
 export const real = (target: string): string => {
   try {

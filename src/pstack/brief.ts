@@ -1,6 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { compile, str } from "@earendil-works/pi-schema";
 
+import { ACCOUNT_COMMAND } from "../bridge/accounts.ts";
+import type { Policy } from "./resources.ts";
+
 // The child's extension reads its limits from the delegation brief
 // (skills/poteto-mode/brief.md).
 
@@ -18,14 +21,6 @@ export interface Brief {
   readonly size: Size | undefined;
 }
 
-export interface BriefRules {
-  readonly jobs: readonly string[];
-  readonly noWrites: readonly string[];
-  readonly sizes: Readonly<
-    Record<string, { readonly files: number; readonly minutes: number }>
-  >;
-}
-
 const SECTIONS = [
   "Goal",
   "Acceptance command",
@@ -40,11 +35,6 @@ const TASK_HEADING = /^# Task:/mu;
 
 // The user's approval of reasoning above high, as a whole message or line.
 const APPROVAL_LINE = /^\s*allow (?:xhigh|max)\b/imu;
-
-// A command that changes the shared account state, where one can start: at the
-// start of a line, or after a space, quote or bracket. Inside a path such as
-// notes/t3-exhausted.md the slash follows a name, so it is not a command.
-export const ACCOUNT_COMMAND = /(?<![\w.~/-])\/t3-(?:exhausted|recovered)\b/u;
 
 const BROAD_PATHS = new Set(["*", "**", "**/*", "/", ".", "./", "~"]);
 
@@ -139,12 +129,13 @@ const textProblems = (text: string): string[] => {
   return problems;
 };
 
-const headerProblems = (brief: Brief, rules: BriefRules): string[] => {
+const headerProblems = (brief: Brief, policy: Policy): string[] => {
+  const jobs = Object.keys(policy.jobs);
   const problems: string[] = [];
 
-  if (brief.job === undefined || !rules.jobs.includes(brief.job)) {
+  if (brief.job === undefined || !jobs.includes(brief.job)) {
     problems.push(
-      `The header needs "Job: <${rules.jobs.join(" | ")}>", the job type pstack_model routed.`
+      `The header needs "Job: <${jobs.join(" | ")}>", the job type pstack_model routed.`
     );
   }
 
@@ -167,9 +158,11 @@ const headerProblems = (brief: Brief, rules: BriefRules): string[] => {
   return problems;
 };
 
-const sizeProblems = (brief: Brief, rules: BriefRules): string[] => {
+const sizeProblems = (brief: Brief, policy: Policy): string[] => {
   const problems: string[] = [];
-  const limits = brief.size === undefined ? undefined : rules.sizes[brief.size];
+
+  const limits =
+    brief.size === undefined ? undefined : policy.briefs.sizes[brief.size];
 
   if (
     limits !== undefined &&
@@ -211,12 +204,12 @@ const sectionProblems = (brief: Brief): string[] => {
   return problems;
 };
 
-const fileProblems = (brief: Brief, rules: BriefRules): string[] => {
+const fileProblems = (brief: Brief, policy: Policy): string[] => {
   const problems: string[] = [];
 
   const readOnly =
     brief.job !== undefined &&
-    rules.noWrites.includes(brief.job) &&
+    policy.briefs.noWrites.includes(brief.job) &&
     brief.files.length === 1 &&
     brief.files[0]?.toLowerCase() === "none";
 
@@ -241,7 +234,7 @@ const fileProblems = (brief: Brief, rules: BriefRules): string[] => {
 
 // Everything wrong with a brief, as one line each, so the parent can fix all
 // of it in one go.
-const briefProblems = (text: string, rules: BriefRules): string[] => {
+const briefProblems = (text: string, policy: Policy): string[] => {
   const problems = textProblems(text);
   const brief = parseBrief(text);
 
@@ -255,10 +248,10 @@ const briefProblems = (text: string, rules: BriefRules): string[] => {
 
   return [
     ...problems,
-    ...headerProblems(brief, rules),
-    ...sizeProblems(brief, rules),
+    ...headerProblems(brief, policy),
+    ...sizeProblems(brief, policy),
     ...sectionProblems(brief),
-    ...fileProblems(brief, rules),
+    ...fileProblems(brief, policy),
   ];
 };
 
@@ -309,12 +302,12 @@ export const sessionBrief = (
 // enough to hold a child to. Undefined when there is no such brief.
 export const incompleteBrief = (
   ctx: ExtensionContext,
-  rules: BriefRules
+  policy: Policy
 ): string[] | undefined => {
   const first = firstMessage(ctx);
   const brief = first === undefined ? undefined : parseBrief(first.text);
 
   return first === undefined || brief === undefined || dispatchable(brief)
     ? undefined
-    : briefProblems(first.text, rules);
+    : briefProblems(first.text, policy);
 };

@@ -29,7 +29,7 @@ const LedgerLineSchema = obj(
     job: opt(nullable(str())),
     minutes: opt(num()),
     model: opt(nullable(str())),
-    outside: opt(num()),
+    outside: opt(nullable(num())),
     report: opt(str()),
     size: opt(nullable(str())),
     status: opt(str()),
