@@ -47,8 +47,10 @@ type NudgeGroup = keyof typeof NUDGE_LIMITS;
 
 const UNAWARE_OF_TERMINATION = "1.5";
 
-// A judge that takes longer must not hold up the end of a run.
-const JUDGE_TIMEOUT_MS = 5000;
+// A judge that takes longer must not hold up the end of a run. Without Jev the
+// judge is a chat model reading a 50 KiB prompt, and those calls took 1.7-5.9 s:
+// a 5 s ceiling cut off most of them, so 15 s leaves room for the slow ones.
+const JUDGE_TIMEOUT_MS = 15_000;
 
 type NudgeKind = "early" | "handoff" | "length";
 
@@ -392,13 +394,6 @@ export const registerSteer = (
       return;
     }
 
-    const verdict = await judgeMast(ctx, excerpt, judgeSignal(ctx));
-
-    // The user cancelled while the judge ran: drop the check quietly.
-    if ("error" in verdict && ctx.signal?.aborted) {
-      return;
-    }
-
     const base = {
       kind: "mast",
       mode,
@@ -406,6 +401,20 @@ export const registerSteer = (
       session: ctx.sessionManager.getSessionId(),
       turn,
     };
+
+    const signal = judgeSignal(ctx);
+
+    const verdict = await judgeMast(ctx, excerpt, signal);
+
+    // A judge the user cancelled drops the check quietly, and one the deadline
+    // cut off is not a judge that is down: neither is worth a warning.
+    if ("error" in verdict && signal.aborted) {
+      if (!ctx.signal?.aborted) {
+        appendSteerLog({ ...base, nudged: false, skipped: "deadline" });
+      }
+
+      return;
+    }
 
     if ("error" in verdict) {
       appendSteerLog({ ...base, error: verdict.error, nudged: false });
@@ -486,11 +495,23 @@ export const registerSteer = (
       return;
     }
 
-    const verdict = await judgeStop(ctx, input, judgeSignal(ctx));
+    const signal = judgeSignal(ctx);
 
-    // The user cancelled while the judge ran: drop the check quietly.
+    const verdict = await judgeStop(ctx, input, signal);
+
+    // A judge the user cancelled, or one the deadline cut off, is not a judge
+    // that is down: the check is skipped, not warned about.
     if ("error" in verdict) {
-      if (!ctx.signal?.aborted) {
+      if (signal.aborted) {
+        if (!ctx.signal?.aborted) {
+          appendSteerLog({
+            ...base,
+            kind: "stop",
+            nudged: false,
+            skipped: "deadline",
+          });
+        }
+      } else {
         appendSteerLog({
           ...base,
           error: verdict.error,
