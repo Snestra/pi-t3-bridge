@@ -136,18 +136,15 @@ const fingerprint = (
       continue;
     }
 
-    const files = statSync(full).isDirectory() ? walkFiles(full) : [entry];
+    if (!statSync(full).isDirectory()) {
+      hash.update(entry).update(readFileSync(full));
+      continue;
+    }
 
-    for (const relative of files.toSorted()) {
-      const filePath = statSync(full).isDirectory()
-        ? path.join(full, relative)
-        : full;
-
-      const name = statSync(full).isDirectory()
-        ? path.join(entry, relative)
-        : entry;
-
-      hash.update(name).update(readFileSync(filePath));
+    for (const relative of walkFiles(full).toSorted()) {
+      hash
+        .update(path.join(entry, relative))
+        .update(readFileSync(path.join(full, relative)));
     }
   }
 
@@ -168,7 +165,6 @@ export const materializePstack = (
   }
 
   const manifestText = readFileSync(path.join(dir, "overlay.json"), "utf-8");
-  const manifest = loadManifest(dir);
 
   const extensionModules = path.resolve(
     path.dirname(upstreamRoot),
@@ -180,16 +176,18 @@ export const materializePstack = (
     fingerprint(upstreamRoot, manifestText, extensionModules)
   );
 
-  if (
+  const usable = (): boolean =>
     existsSync(path.join(target, ".complete")) &&
     (!existsSync(extensionModules) ||
-      existsSync(path.join(target, "node_modules")))
-  ) {
+      existsSync(path.join(target, "node_modules")));
+
+  if (usable()) {
     return target;
   }
 
+  const manifest = loadManifest(dir);
+
   mkdirSync(cacheRoot, { recursive: true });
-  rmSync(target, { force: true, recursive: true });
 
   const staging = `${target}.${process.pid}.tmp`;
 
@@ -239,9 +237,27 @@ export const materializePstack = (
     }
 
     writeFileSync(path.join(staging, ".complete"), "");
+
+    // A usable copy is never removed, because other Pi processes may serve
+    // it. An unusable one is moved aside first, so its removal can't race a
+    // copy another process renames into place.
+    if (existsSync(target) && !usable()) {
+      const stale = `${target}.${process.pid}.stale`;
+
+      renameSync(target, stale);
+      rmSync(stale, { force: true, recursive: true });
+    }
+
     renameSync(staging, target);
   } catch (error) {
     rmSync(staging, { force: true, recursive: true });
+
+    // Another Pi process that started at the same time renamed the same copy
+    // into place first. Its copy is identical, so use it.
+    if (usable()) {
+      return target;
+    }
+
     throw error;
   }
 

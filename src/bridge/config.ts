@@ -16,6 +16,7 @@ import type { Static, Validator } from "@earendil-works/pi-schema";
 // The bridge's settings, one JSON file per machine. Each key is checked on its
 // own, so one bad value falls back to its default and leaves the rest alone.
 // The file is read on every call, so an edit applies on the next prompt.
+// mcpUrl is the exception: the MCP server registers it once per session.
 
 const SteerSchema = oneOf(["on", "off", "shadow"]);
 
@@ -107,8 +108,16 @@ const parse = (text: string): Loaded => {
 const load = (): Loaded => {
   try {
     return parse(readFileSync(configPath(), "utf-8"));
-  } catch {
-    return { config: EMPTY, problems: [] };
+  } catch (error) {
+    const missing =
+      error instanceof Error && "code" in error && error.code === "ENOENT";
+
+    return {
+      config: EMPTY,
+      problems: missing
+        ? []
+        : [`${configPath()} could not be read: ${String(error)}`],
+    };
   }
 };
 

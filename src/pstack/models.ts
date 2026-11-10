@@ -32,7 +32,8 @@ import {
 } from "../bridge/accounts.ts";
 import { t3Json, t3Text } from "../bridge/t3-json.ts";
 import { ACCOUNT_COMMAND } from "./brief.ts";
-import { policyPath } from "./resources.ts";
+import { readPolicy } from "./resources.ts";
+import type { Policy } from "./resources.ts";
 import { modelSheetPath } from "./session.ts";
 
 const OptionValueSchema = union([str(), bool()]);
@@ -70,50 +71,6 @@ const catalogValidator = compile(CatalogSchema);
 
 const ComplexitySchema = oneOf(["groundwork", "bounded", "general"]);
 
-const SizesSchema = obj(
-  { bounded: str(), general: str(), groundwork: str() },
-  { open: true }
-);
-
-const JobTargetSchema = obj({ model: str(), reasoning: str() }, { open: true });
-
-const JobSchema = union([
-  obj({ M: JobTargetSchema, S: JobTargetSchema }, { open: true }),
-  obj({ panel: arr(JobTargetSchema, { minItems: 2 }) }, { open: true }),
-]);
-
-const PolicySchema = obj(
-  {
-    briefs: obj(
-      { gpt: obj({ family: str(), size: str() }, { open: true }) },
-      { open: true }
-    ),
-    jobs: map(JobSchema),
-    roles: arr(
-      obj(
-        {
-          alias: opt(str()),
-          role: str(),
-          skill: str(),
-          tier: oneOf(["single", "panel"]),
-        },
-        { open: true }
-      )
-    ),
-    routing: obj(
-      {
-        families: map(SizesSchema),
-        panel: arr(str(), { minItems: 2 }),
-        reasoning: SizesSchema,
-      },
-      { open: true }
-    ),
-  },
-  { open: true }
-);
-
-const isPolicy = compile(PolicySchema).check;
-
 const isBoolean = compile(bool()).check;
 
 const isThreadSend = compile(obj({ message: str() }, { open: true })).check;
@@ -127,8 +84,6 @@ type CatalogProvider = Static<typeof CatalogProviderSchema>;
 type Catalog = Static<typeof CatalogSchema>;
 
 type Complexity = Static<typeof ComplexitySchema>;
-
-type Policy = Static<typeof PolicySchema>;
 
 type Role = Policy["roles"][number];
 
@@ -691,16 +646,6 @@ const resolveRole = (
   }
 
   return resolveSingle(role, configured[0] ?? null, complexity, context);
-};
-
-const readPolicy = (): Policy => {
-  const policy = JSON.parse(readFileSync(policyPath(), "utf-8"));
-
-  if (!isPolicy(policy)) {
-    throw new TypeError("models.json does not have the expected shape.");
-  }
-
-  return policy;
 };
 
 const readSheet = (): string => {

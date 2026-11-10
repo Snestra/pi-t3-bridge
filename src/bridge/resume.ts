@@ -17,8 +17,11 @@ import { callT3Tool, insideT3 } from "./t3-http.ts";
 
 const RESUME_ENTRY = "pi-t3-resume";
 
-// With no reset time in the error, try again after this long.
-const UNKNOWN_RESET_MS = 60 * 60_000;
+// A usage limit that names no reset time, or one the user reported without
+// one, holds the family out this long, and the resume waits as long. The next
+// task then probes the family, and another limit marks it out again, so no
+// mark waits on a person.
+export const NO_RESET_MS = 60 * 60_000;
 
 // Start a little after the reset, so the account is open when the turn starts.
 const AFTER_RESET_MS = 2 * 60_000;
@@ -88,11 +91,11 @@ export const scheduleResume = async (
 
   const resetAt =
     failure.resetAt === undefined
-      ? Date.now() + UNKNOWN_RESET_MS
+      ? Date.now() + NO_RESET_MS
       : Date.parse(failure.resetAt);
 
   const at = new Date(Math.max(resetAt, Date.now()) + AFTER_RESET_MS);
-  const marker = `${Date.now().toString(36)}`;
+  const marker = Date.now().toString(36);
 
   const prompt = `[pi-t3-resume ${marker}] The previous turn stopped because the ${modelFamily} account ran out of usage or had no working connection. Its reset time has passed. Continue the work from where it stopped: read the task list, check what the last steps left, and go on.`;
 

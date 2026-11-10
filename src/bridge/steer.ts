@@ -224,9 +224,6 @@ export const waitingOnChild = (ctx: ExtensionContext): boolean => {
 // changes the session.
 const steerMode = () => readConfig().steer ?? "on";
 
-// T3 hands a delegated child's last message to its parent as the result, so
-// a turn that writes only the section would replace the child's answer.
-
 const mastNote = (mode: MastMode, probability: number) => ({
   content: `MAST · ${mode.label} (p=${probability.toFixed(2)}): ${mode.note}`,
   customType: MAST_NOTE,
@@ -295,15 +292,6 @@ export const registerSteer = (
   let rule: string | undefined;
   let warned = false;
 
-  // Whether this session is a delegated child, found once per session.
-  let delegated: boolean | undefined;
-
-  const reportsToParent = async (): Promise<boolean> => {
-    delegated ??= await isDelegatedChild();
-
-    return delegated;
-  };
-
   const warnOnce = (ctx: ExtensionContext, error: string): void => {
     if (!warned) {
       warned = true;
@@ -324,8 +312,16 @@ export const registerSteer = (
 
   // Each mode fires once per prompt. It fires again only after a check puts
   // it back under its threshold.
-  const decide = (probabilities: Readonly<Record<string, number>>) =>
+  // A held mode stays armed, so it can still fire later in the prompt.
+  const decide = (
+    probabilities: Readonly<Record<string, number>>,
+    held: (code: string) => boolean
+  ) =>
     mastModes().filter((mode) => {
+      if (held(mode.code)) {
+        return false;
+      }
+
       if ((probabilities[mode.code] ?? 0) < mode.threshold) {
         armed.add(mode.code);
 
@@ -336,7 +332,6 @@ export const registerSteer = (
     });
 
   pi.on("session_start", () => {
-    delegated = undefined;
     warned = false;
     arm();
     turn = 0;
@@ -387,7 +382,7 @@ export const registerSteer = (
     const mode = steerMode();
     const every = mastEvery();
 
-    if (mode === "off" || turn < every || turn % every !== 0) {
+    if (mode === "off" || turn % every !== 0) {
       return;
     }
 
@@ -419,9 +414,11 @@ export const registerSteer = (
       return;
     }
 
-    const fired = decide(verdict.probabilities).filter(
-      (fire) =>
-        fire.code !== UNAWARE_OF_TERMINATION || !lastNoteIsStopNudge(ctx)
+    const stopNudged = lastNoteIsStopNudge(ctx);
+
+    const fired = decide(
+      verdict.probabilities,
+      (code) => code === UNAWARE_OF_TERMINATION && stopNudged
     );
 
     const noted = mode === "on" && fired.length > 0;
@@ -482,7 +479,7 @@ export const registerSteer = (
 
     const input =
       last.stopReason === "stop"
-        ? stopInput(branch, (await reportsToParent()) ? undefined : rule)
+        ? stopInput(branch, (await isDelegatedChild()) ? undefined : rule)
         : undefined;
 
     if (input === undefined) {

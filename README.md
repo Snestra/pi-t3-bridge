@@ -24,7 +24,7 @@ flowchart LR
 You need the following programs:
 
 - Node.js 22.19.0 or later
-- Pi 1.4.0 or later
+- Pi 1.5.0 or later
 - T3 Code, if you want to run Pi threads inside T3 or call T3 tools from Pi
 - On Linux, the `bubblewrap` package, for the sandbox that delegated children run in
 
@@ -38,7 +38,7 @@ The package is only on GitHub, not on npm. Install it with Pi:
 pi install git:github.com/Snestra/pi-t3-bridge
 ```
 
-Pi clones the repository, installs its dependencies, and loads every extension in the package on the next start. `pi update --extensions` moves the clone to the newest commit on `main`. To stay on a release instead, add its tag, e.g. `git:github.com/Snestra/pi-t3-bridge@v0.8.3`. To try the package for one session without saving it to your settings, run `pi -e git:github.com/Snestra/pi-t3-bridge`.
+Pi clones the repository, installs its dependencies, and loads every extension in the package on the next start. `pi update --extensions` moves the clone to the newest commit on `main`. To stay on a release instead, add its tag, e.g. `git:github.com/Snestra/pi-t3-bridge@v0.9.1`. To try the package for one session without saving it to your settings, run `pi -e git:github.com/Snestra/pi-t3-bridge`.
 
 If you installed the old npm package, swap it for the git one:
 
@@ -158,15 +158,14 @@ The bridge rejects stale updates and incompatible goal tools. Account recovery r
 
 Evidence records make completion inspectable. They do not prove that an arbitrary objective is complete. The feature assumes one Pi process owns the session file and does not promise exactly-once work across crashes. It does not add goal queues, automatic delegation, or model-created goals.
 
-### Plan mode
+### Plan approval
 
-When T3 is in Plan mode, or when a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide.
+When a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide. The bridge does not use T3's Plan mode. The agent asks for approval with the `plan` tool whenever a task calls for a plan. If the card fails to show, the gate opens again, so a lost card never leaves the thread blocked.
 
 ```mermaid
 stateDiagram-v2
     [*] --> open
-    open --> planning: T3 enters Plan mode
-    planning --> awaiting: agent calls plan
+    open --> awaiting: agent calls plan
     awaiting --> approved: you pick Approve
     awaiting --> revising: you pick Revise
     awaiting --> cancelled: you pick Cancel
@@ -390,7 +389,7 @@ The tstack extension serves Theo Browne's tstack skills from `tstack/skills`, wh
 
 ## Settings
 
-The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Every key is optional. The bridge reads the file again on each prompt, so an edit applies on the next prompt. If a value is invalid, only that key falls back to its default, and the bridge tells you once.
+The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Every key is optional. The bridge reads the file again on each prompt, so an edit applies on the next prompt, except `mcpUrl`, which applies on the next `/new`, `/reload`, or Pi start. If a value is invalid, only that key falls back to its default, and the bridge tells you once.
 
 ```json
 {
@@ -407,7 +406,7 @@ The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Ev
 | `bashTimeoutSeconds` | `300` | The longest a shell command can run, in seconds. |
 | `childSandbox` | `"on"` | With `"on"`, a child's `bash` is blocked when no sandbox can run. With `"off"`, commands run with no sandbox on every platform, and the child's report says `SANDBOX: off`. |
 | `classifierModel` | unset | The chat model that runs the stop checks, as `"provider/modelId"`. The model ID may contain more slashes. |
-| `mcpUrl` | `http://127.0.0.1:3773/mcp` | The T3 MCP address to use from a terminal. |
+| `mcpUrl` | `http://127.0.0.1:3773/mcp` | The T3 MCP address to use from a terminal. A change applies on the next `/new`, `/reload`, or Pi start. |
 | `steer` | `"on"` | The stop checks, as `"on"`, `"shadow"`, or `"off"`. |
 
 The package writes its files in the places below. If `XDG_CONFIG_HOME` or `XDG_STATE_HOME` is set, the folder it names replaces `~/.config` or `~/.local/state`.
@@ -420,6 +419,7 @@ The package writes its files in the places below. If `XDG_CONFIG_HOME` or `XDG_S
 ├── accounts.json              # model families that are out of usage
 ├── ledger.jsonl               # one line per delegated brief, with cost and report
 ├── steer.jsonl                # one line per stop check verdict, with no transcript text
+├── t3-mcp.json                # the T3 MCP token, for Pi in a terminal
 └── pstack-overlay/            # pstack skills with the Pi changes applied
 ```
 

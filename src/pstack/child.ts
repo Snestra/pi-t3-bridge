@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -9,9 +9,9 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
-  arr,
   bool,
   compile,
+  nul,
   num,
   obj,
   opt,
@@ -25,7 +25,7 @@ import { appendLedger } from "../bridge/state.ts";
 import { isDelegatedChild, ownThreadId } from "../bridge/thread.ts";
 import { incompleteBrief, sessionBrief } from "./brief.ts";
 import type { Brief, BriefRules } from "./brief.ts";
-import { policyPath } from "./resources.ts";
+import { readPolicy } from "./resources.ts";
 import {
   chooseSandbox,
   real,
@@ -133,31 +133,10 @@ const remainingSeconds = (startedAt: number, brief: Brief): number =>
 const isExecFailure = compile(
   obj(
     {
-      code: opt(union([num(), str()])),
+      code: opt(union([num(), str(), nul()])),
       killed: opt(bool()),
       stderr: opt(str()),
       stdout: opt(str()),
-    },
-    { open: true }
-  )
-).check;
-
-const isLimits = compile(obj({ files: num(), minutes: num() })).check;
-
-const isPolicy = compile(
-  obj(
-    {
-      briefs: opt(
-        obj(
-          {
-            noWrites: opt(arr(str())),
-            redBeforeGreen: opt(arr(str())),
-            sizes: opt(obj({}, { open: true })),
-          },
-          { open: true }
-        )
-      ),
-      jobs: opt(obj({}, { open: true })),
     },
     { open: true }
   )
@@ -171,41 +150,49 @@ const isPathInput = compile(obj({ path: str() }, { open: true })).check;
 
 const isNumber = compile(num()).check;
 
-const readPolicy = () => {
-  const policy: unknown = JSON.parse(readFileSync(policyPath(), "utf-8"));
-
-  return isPolicy(policy) ? policy : {};
-};
-
-const readRedBeforeGreen = (): readonly string[] =>
-  readPolicy().briefs?.redBeforeGreen ?? [];
-
 const readBriefRules = (): BriefRules => {
   const { briefs, jobs } = readPolicy();
 
   return {
-    jobs: Object.keys(jobs ?? {}),
-    noWrites: briefs?.noWrites ?? [],
-    sizes: Object.fromEntries(
-      Object.entries(briefs?.sizes ?? {}).flatMap(([size, limits]) =>
-        isLimits(limits) ? [[size, limits] as const] : []
-      )
-    ),
+    jobs: Object.keys(jobs),
+    noWrites: briefs.noWrites,
+    sizes: briefs.sizes,
   };
 };
 
+// Paths relative to the workdir, as the brief lists them. git prints paths
+// from the repository root, and -z keeps names with spaces unquoted. A rename
+// prints its new path, then its old path as a separate record.
 const changedFiles = async (cwd: string): Promise<string[]> => {
   try {
-    const { stdout } = await run(
-      "git",
-      ["status", "--porcelain", "--untracked-files=all"],
-      { cwd }
-    );
+    const [{ stdout: prefix }, { stdout }] = await Promise.all([
+      run("git", ["rev-parse", "--show-prefix"], { cwd }),
+      run(
+        "git",
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", "."],
+        { cwd }
+      ),
+    ]);
 
-    return stdout
-      .split("\n")
-      .filter((line) => line.trim() !== "")
-      .map((line) => line.slice(3).split(" -> ").pop() ?? "");
+    const root = prefix.trim();
+    const records = stdout.split("\0");
+    const files: string[] = [];
+
+    for (let index = 0; index < records.length; index += 1) {
+      const record = records[index] ?? "";
+
+      if (record.length < 4) {
+        continue;
+      }
+
+      files.push(record.slice(3).slice(root.length));
+
+      if (record.startsWith("R") || record.startsWith("C")) {
+        index += 1;
+      }
+    }
+
+    return files;
   } catch {
     return [];
   }
@@ -276,7 +263,6 @@ interface ChildState {
   diskCheck: Promise<void>;
   diskOver: boolean;
   diskQueued: boolean;
-  delegated: boolean | undefined;
   gitDir: string | undefined;
   greenAtStart: boolean;
   ready: boolean;
@@ -287,7 +273,6 @@ export const registerChild = (pi: ExtensionAPI): void => {
   const state: ChildState = {
     baselineKb: undefined,
     before: undefined,
-    delegated: undefined,
     diskCheck: Promise.resolve(),
     diskOver: false,
     diskQueued: false,
@@ -352,7 +337,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
 
     state.baselineKb = await duKb(ctx.cwd);
 
-    const redBeforeGreen = readRedBeforeGreen();
+    const { redBeforeGreen } = readPolicy().briefs;
 
     if (
       brief.acceptance !== undefined &&
@@ -390,9 +375,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
         return;
       }
 
-      state.delegated ??= await isDelegatedChild();
-
-      return state.delegated
+      return (await isDelegatedChild())
         ? {
             block: true,
             reason: `This delegated task's brief is incomplete, so it can't run in the sandbox and every tool is blocked. Use no more tools. Report STATUS: BLOCKED (incomplete brief) with these problems, so the parent can resend a complete brief:\n- ${problems.join("\n- ")}`,

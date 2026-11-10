@@ -112,7 +112,10 @@ const isString = compile(str()).check;
 // JSON Schema's schema that no value matches.
 const NOTHING: Schema<never> = { not: {} };
 
-const readQuestions = (): Static<typeof QuestionsFileSchema> => {
+// The bundled files never change while Pi runs, so each is parsed once.
+let questionsFile: Static<typeof QuestionsFileSchema> | undefined;
+
+const parseQuestions = (): Static<typeof QuestionsFileSchema> => {
   const questions: unknown = JSON.parse(
     readFileSync(
       path.join(import.meta.dirname, "steer-questions.json"),
@@ -129,7 +132,10 @@ const readQuestions = (): Static<typeof QuestionsFileSchema> => {
   return questions;
 };
 
-// Fitted on the user's own labelled stops. See the stop-steer outline, phase 6.
+const readQuestions = (): Static<typeof QuestionsFileSchema> =>
+  (questionsFile ??= parseQuestions());
+
+// Fitted on the user's own labelled stops.
 export const stopThresholds = () => readQuestions().thresholds;
 
 type Asked = { readonly answers: unknown } | { readonly error: string };
@@ -453,7 +459,9 @@ const MastFileSchema = obj(
 
 const isMastFile = compile(MastFileSchema).check;
 
-const readMast = (): Static<typeof MastFileSchema> => {
+let mastFile: Static<typeof MastFileSchema> | undefined;
+
+const parseMast = (): Static<typeof MastFileSchema> => {
   const mast: unknown = JSON.parse(
     readFileSync(path.join(import.meta.dirname, "steer-mast.json"), "utf-8")
   );
@@ -467,6 +475,9 @@ const readMast = (): Static<typeof MastFileSchema> => {
 
   return mast;
 };
+
+const readMast = (): Static<typeof MastFileSchema> =>
+  (mastFile ??= parseMast());
 
 export const mastModes = (): readonly MastMode[] => readMast().modes;
 

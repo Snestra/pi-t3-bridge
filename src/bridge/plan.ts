@@ -3,7 +3,15 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { obj, opt, str } from "@earendil-works/pi-schema";
+import {
+  compile,
+  lit,
+  obj,
+  oneOf,
+  opt,
+  str,
+  union,
+} from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
 import {
@@ -22,13 +30,20 @@ const PLAN_CHOICES = ["Approve", "Revise", "Cancel"] as const;
 
 type PlanChoice = (typeof PLAN_CHOICES)[number];
 
-type PlanGate =
-  | { readonly state: "open" }
-  | { readonly state: "planning" }
-  | { readonly planId: string; readonly state: "awaiting" }
-  | { readonly planId: string; readonly state: "revising" }
-  | { readonly planId: string; readonly state: "approved" }
-  | { readonly planId: string; readonly state: "cancelled" };
+const PlanGateSchema = union([
+  obj({ state: lit("open") }, { open: true }),
+  obj(
+    {
+      planId: str(),
+      state: oneOf(["awaiting", "revising", "approved", "cancelled"]),
+    },
+    { open: true }
+  ),
+]);
+
+type PlanGate = Static<typeof PlanGateSchema>;
+
+const isPlanGate = compile(PlanGateSchema).check;
 
 const OPEN_GATE: PlanGate = { state: "open" };
 
@@ -37,8 +52,6 @@ const BLOCK_REASONS: Readonly<Partial<Record<PlanGate["state"], string>>> = {
     "A proposed plan is waiting for the user's approval. Only read-only tools run until the user approves it.",
   cancelled:
     "The user cancelled the plan. Only read-only tools run until the user sends a new message.",
-  planning:
-    "T3 is in Plan mode. Only read-only tools run. Propose the plan with the `plan` tool; the user approves it from the plan card.",
   revising:
     "The user asked for a revised plan. Only read-only tools run until the user approves a plan through the `plan` tool.",
 };
@@ -59,21 +72,6 @@ const ALWAYS_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "read",
   "tool_search",
 ]);
-
-const isPlanGate = (data: unknown): data is PlanGate => {
-  if (data === null || typeof data !== "object" || !("state" in data)) {
-    return false;
-  }
-
-  return [
-    "open",
-    "planning",
-    "awaiting",
-    "revising",
-    "approved",
-    "cancelled",
-  ].includes(String(data.state));
-};
 
 const currentGate = (ctx: ExtensionContext): PlanGate => {
   const entries = ctx.sessionManager.getBranch();
@@ -163,11 +161,6 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
   });
 
   pi.on("before_agent_start", (event, ctx) => {
-    if (currentGate(ctx).state === "planning") {
-      event.systemPromptOptions.sections.t3_plan_mode =
-        "T3 Code is in Plan mode for this message. Investigate with read-only tools only; writes, shell commands and delegation are blocked. When the plan is decision complete, call the `plan` tool with it and stop. The user approves it from the plan card.";
-    }
-
     if (
       event.messageType === "user" &&
       currentGate(ctx).state === "cancelled"
@@ -199,16 +192,25 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
 
         setGate({ planId: toolCallId, state: "awaiting" });
 
-        const rendered = await renderInlineCard(ctx, {
-          ...planCard(title, params.plan),
-          title,
-        });
+        let answer: string | undefined;
 
-        const question = rendered
-          ? `Approve "${title}" shown above?`
-          : `Approve this plan?\n\n${params.plan}`;
+        try {
+          const rendered = await renderInlineCard(ctx, {
+            ...planCard(title, params.plan),
+            title,
+          });
 
-        const answer = await ctx.ui.select(question, [...PLAN_CHOICES]);
+          const question = rendered
+            ? `Approve "${title}" shown above?`
+            : `Approve this plan?\n\n${params.plan}`;
+
+          answer = await ctx.ui.select(question, [...PLAN_CHOICES]);
+        } catch (error) {
+          // No card is waiting for the user, so nothing may stay blocked.
+          setGate(OPEN_GATE);
+          throw error;
+        }
+
         const choice = isPlanChoice(answer) ? answer : "Cancel";
 
         if (choice === "Approve") {
