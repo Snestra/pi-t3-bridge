@@ -11,119 +11,120 @@ import {
   str,
   unknown,
 } from "@earendil-works/pi-schema";
-import type { Static, Validator } from "@earendil-works/pi-schema";
+import type { Validator } from "@earendil-works/pi-schema";
 
 // The bridge's settings, one JSON file per machine. Each key is checked on its
 // own, so one bad value falls back to its default and leaves the rest alone.
-// The file is read on every call, so an edit applies on the next prompt.
-// mcpUrl is the exception: the MCP server registers it once per session.
+// The file is read on every call, so an edit applies on the next prompt,
+// except mcpUrl, which the MCP server registers once per session.
 
-const SteerSchema = oneOf(["on", "off", "shadow"]);
+interface Field<T, D> {
+  readonly fallback?: D;
+  readonly validator: Validator<T>;
+}
 
-const ChildSandboxSchema = oneOf(["on", "off"]);
+const field = <T, D extends T | undefined = undefined>(
+  validator: Validator<T>,
+  fallback?: D
+): Field<T, D> => ({ fallback, validator });
 
-const configFile = compile(map(unknown()));
-
-const fields = {
-  bashTimeoutSeconds: compile(num({ exclusiveMinimum: 0 })),
-  childSandbox: compile(ChildSandboxSchema),
-  classifierModel: compile(str({ pattern: "^[^/\\s]+/.+$" })),
-  mcpUrl: compile(str({ minLength: 1 })),
-  steer: compile(SteerSchema),
+const FIELDS = {
+  // Every shell command in every session, parent or child, gets a timeout of
+  // at most this many seconds. A command with no timeout gets exactly this
+  // one, so a hung test suite or a long `sleep` poll stalls a chat for
+  // minutes, not for a quarter of an hour or forever.
+  bashTimeoutSeconds: field(compile(num({ exclusiveMinimum: 0 })), 300),
+  childSandbox: field(compile(oneOf(["on", "off"])), "on"),
+  classifierModel: field(compile(str({ pattern: "^[^/\\s]+/.+$" }))),
+  mcpUrl: field(compile(str({ minLength: 1 })), "http://127.0.0.1:3773/mcp"),
+  // Shadow judges and logs but never changes the session.
+  steer: field(compile(oneOf(["on", "off", "shadow"])), "on"),
 };
 
-interface Config {
-  readonly bashTimeoutSeconds: number | undefined;
-  readonly childSandbox: Static<typeof ChildSandboxSchema> | undefined;
-  readonly classifierModel: string | undefined;
-  readonly mcpUrl: string | undefined;
-  readonly steer: Static<typeof SteerSchema> | undefined;
-}
+type Fields = typeof FIELDS;
+
+type Config = {
+  readonly [K in keyof Fields]: Fields[K] extends Field<infer T, infer D>
+    ? T | D
+    : never;
+};
 
 interface Loaded {
   readonly config: Config;
   readonly problems: readonly string[];
 }
 
-const EMPTY: Config = {
-  bashTimeoutSeconds: undefined,
-  childSandbox: undefined,
-  classifierModel: undefined,
-  mcpUrl: undefined,
-  steer: undefined,
-};
+export const configHome = (): string =>
+  process.env.XDG_CONFIG_HOME?.trim() || path.join(homedir(), ".config");
 
-const configPath = (): string =>
-  path.join(
-    process.env.XDG_CONFIG_HOME?.trim() || path.join(homedir(), ".config"),
-    "pi-t3",
-    "config.json"
-  );
+export const configPath = (): string =>
+  path.join(configHome(), "pi-t3", "config.json");
 
-const parse = (text: string): Loaded => {
-  const file = configPath();
+const configFile = compile(map(unknown()));
+
+const defaults = (): Config =>
+  // SAFETY: each key gets its own field's fallback.
+  Object.fromEntries(
+    Object.entries(FIELDS).map(([key, { fallback }]) => [key, fallback])
+  ) as Config;
+
+const parse = (text: string, file: string): Loaded => {
   let parsed: unknown;
 
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { config: EMPTY, problems: [`${file} is not valid JSON.`] };
+    return { config: defaults(), problems: [`${file} is not valid JSON.`] };
   }
 
   if (!configFile.check(parsed)) {
-    return { config: EMPTY, problems: [`${file} is not a JSON object.`] };
+    return { config: defaults(), problems: [`${file} is not a JSON object.`] };
   }
 
   const problems: string[] = [];
 
-  const field = <T>(key: string, validator: Validator<T>): T | undefined => {
-    const value = parsed[key];
+  const entries = Object.entries(FIELDS).map(
+    ([key, { fallback, validator }]) => {
+      const value = parsed[key];
 
-    if (value === undefined || validator.check(value)) {
-      return value;
+      if (value === undefined) {
+        return [key, fallback];
+      }
+
+      if (validator.check(value)) {
+        return [key, value];
+      }
+
+      problems.push(
+        `"${key}" in ${file} has an invalid value, so its default applies.`
+      );
+
+      return [key, fallback];
     }
+  );
 
-    problems.push(
-      `"${key}" in ${file} has an invalid value, so its default applies.`
-    );
-
-    return undefined;
-  };
-
-  return {
-    config: {
-      bashTimeoutSeconds: field(
-        "bashTimeoutSeconds",
-        fields.bashTimeoutSeconds
-      ),
-      childSandbox: field("childSandbox", fields.childSandbox),
-      classifierModel: field("classifierModel", fields.classifierModel),
-      mcpUrl: field("mcpUrl", fields.mcpUrl),
-      steer: field("steer", fields.steer),
-    },
-    problems,
-  };
+  // SAFETY: each key holds a value its own validator accepted, or its fallback.
+  return { config: Object.fromEntries(entries) as Config, problems };
 };
 
 const load = (): Loaded => {
+  const file = configPath();
+
   try {
-    return parse(readFileSync(configPath(), "utf-8"));
+    return parse(readFileSync(file, "utf-8"), file);
   } catch (error) {
     const missing =
       error instanceof Error && "code" in error && error.code === "ENOENT";
 
     return {
-      config: EMPTY,
-      problems: missing
-        ? []
-        : [`${configPath()} could not be read: ${String(error)}`],
+      config: defaults(),
+      problems: missing ? [] : [`${file} could not be read: ${String(error)}`],
     };
   }
 };
 
 export const readConfig = (): Config => load().config;
 
-// A file the bridge cannot use is reported once per session, not per prompt.
 export const registerConfig = (pi: ExtensionAPI): void => {
   let warned = false;
 

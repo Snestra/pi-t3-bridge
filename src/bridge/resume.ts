@@ -2,12 +2,11 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { compile, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
+import { compile, int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import type { Classified } from "./failures.ts";
-import { GoalIdentitySchema, matchesGoal, readGoal } from "./goal.ts";
-import type { GoalIdentity } from "./goal.ts";
+import { savedEntries } from "./branch.ts";
+import type { FamilyOut } from "./failures.ts";
 import { callT3Tool, insideT3 } from "./t3-http.ts";
 
 // When the orchestrator's own account runs out, nothing is left to call a
@@ -17,16 +16,19 @@ import { callT3Tool, insideT3 } from "./t3-http.ts";
 
 const RESUME_ENTRY = "pi-t3-resume";
 
-// A usage limit that names no reset time, or one the user reported without
-// one, holds the family out this long, and the resume waits as long. The next
-// task then probes the family, and another limit marks it out again, so no
-// mark waits on a person.
-export const NO_RESET_MS = 60 * 60_000;
-
 // Start a little after the reset, so the account is open when the turn starts.
 const AFTER_RESET_MS = 2 * 60_000;
 
 const MARKER = /\[pi-t3-resume (?<marker>[\w-]+)\]/u;
+
+// The saved goal run a resume continues, by ID and revision, so an old
+// resume cannot restart a goal the user changed since.
+const GoalIdentitySchema = obj({
+  id: str({ minLength: 1 }),
+  revision: int({ minimum: 1 }),
+});
+
+export type GoalIdentity = Static<typeof GoalIdentitySchema>;
 
 const ResumeSchema = obj(
   {
@@ -38,24 +40,18 @@ const ResumeSchema = obj(
   { open: true }
 );
 
+type Resume = Static<typeof ResumeSchema>;
+
 const isResume = compile(ResumeSchema).check;
 
-const isScheduled = compile(
-  obj({ scheduledTaskId: str() }, { open: true })
-).check;
+const scheduled = compile(obj({ scheduledTaskId: str() }, { open: true }));
 
-const resumes = (ctx: ExtensionContext) =>
-  ctx.sessionManager
-    .getBranch()
-    .flatMap((entry) =>
-      entry.type === "custom" &&
-      entry.customType === RESUME_ENTRY &&
-      isResume(entry.data)
-        ? [entry.data]
-        : []
-    );
+export const isResumePrompt = (text: string): boolean => MARKER.test(text);
 
-const pending = (ctx: ExtensionContext) => {
+const resumes = (ctx: ExtensionContext): Resume[] =>
+  savedEntries(ctx, RESUME_ENTRY, isResume);
+
+const pending = (ctx: ExtensionContext): Resume[] => {
   const all = resumes(ctx);
 
   const done = new Set(
@@ -67,7 +63,7 @@ const pending = (ctx: ExtensionContext) => {
   );
 };
 
-export const pendingGoalResume = (
+export const recoveryPending = (
   ctx: ExtensionContext,
   goal: GoalIdentity
 ): boolean =>
@@ -76,25 +72,23 @@ export const pendingGoalResume = (
       entry.goal?.id === goal.id && entry.goal.revision === goal.revision
   );
 
-const twoDigits = (value: number): string => String(value).padStart(2, "0");
+const pad = (value: number): string => String(value).padStart(2, "0");
 
 export const scheduleResume = async (
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   modelFamily: string,
-  failure: Classified,
-  identity?: GoalIdentity
+  failure: FamilyOut,
+  goal: GoalIdentity | undefined
 ): Promise<void> => {
   if (!insideT3() || pending(ctx).length > 0) {
     return;
   }
 
-  const resetAt =
-    failure.resetAt === undefined
-      ? Date.now() + NO_RESET_MS
-      : Date.parse(failure.resetAt);
+  const at = new Date(
+    Math.max(Date.parse(failure.resetAt), Date.now()) + AFTER_RESET_MS
+  );
 
-  const at = new Date(Math.max(resetAt, Date.now()) + AFTER_RESET_MS);
   const marker = Date.now().toString(36);
 
   const prompt = `[pi-t3-resume ${marker}] The previous turn stopped because the ${modelFamily} account ran out of usage or had no working connection. Its reset time has passed. Continue the work from where it stopped: read the task list, check what the last steps left, and go on.`;
@@ -104,24 +98,21 @@ export const scheduleResume = async (
       bindToCurrentThread: true,
       prompt,
       schedule: {
-        timeOfDay: `${twoDigits(at.getHours())}:${twoDigits(at.getMinutes())}`,
+        timeOfDay: `${pad(at.getHours())}:${pad(at.getMinutes())}`,
         type: "fixed_time",
         weekdays: [at.getDay()],
       },
       title: `pi-t3 resume after ${modelFamily} reset`,
     });
 
-    const scheduled: Static<typeof ResumeSchema> = {
-      goal: identity,
+    pi.appendEntry(RESUME_ENTRY, {
+      goal,
       marker,
+      scheduledTaskId: scheduled.check(result)
+        ? result.scheduledTaskId
+        : undefined,
       state: "scheduled",
-    };
-
-    if (isScheduled(result)) {
-      scheduled.scheduledTaskId = result.scheduledTaskId;
-    }
-
-    pi.appendEntry(RESUME_ENTRY, scheduled);
+    } satisfies Resume);
 
     if (ctx.hasUI) {
       ctx.ui.notify(
@@ -139,11 +130,24 @@ export const scheduleResume = async (
   }
 };
 
+// A resume for a goal run never reaches the model as a user prompt, even a
+// late repeat of one already used: recoverGoal decides whether the goal still
+// wants the work. A resume without a goal runs as the prompt it is.
 export const registerResume = (
   pi: ExtensionAPI,
-  canRecover?: (ctx: ExtensionContext) => boolean
+  recoverGoal: (ctx: ExtensionContext, goal: GoalIdentity) => void
 ): void => {
-  const retire = async (entry: Static<typeof ResumeSchema>): Promise<void> => {
+  const arrived = async (
+    ctx: ExtensionContext,
+    text: string
+  ): Promise<Resume | undefined> => {
+    const marker = MARKER.exec(text)?.groups?.marker;
+    const entry = pending(ctx).find((candidate) => candidate.marker === marker);
+
+    if (entry === undefined) {
+      return undefined;
+    }
+
     pi.appendEntry(RESUME_ENTRY, { marker: entry.marker, state: "done" });
 
     if (entry.scheduledTaskId !== undefined) {
@@ -151,69 +155,32 @@ export const registerResume = (
         scheduledTaskId: entry.scheduledTaskId,
       }).catch(() => null);
     }
+
+    return entry;
   };
 
   pi.on("input", async (event, ctx) => {
-    const marker = MARKER.exec(event.text)?.[1];
+    const marker = MARKER.exec(event.text)?.groups?.marker;
 
-    const entry = resumes(ctx).find(
+    const forGoal = resumes(ctx).find(
       (candidate) =>
         candidate.marker === marker && candidate.state === "scheduled"
-    );
+    )?.goal;
 
-    if (entry?.goal === undefined) {
+    if (forGoal === undefined) {
       return;
     }
 
-    const wasPending = pending(ctx).some(
-      (candidate) => candidate.marker === marker
-    );
-
-    if (wasPending) {
-      await retire(entry);
-    }
-
-    try {
-      const goal = readGoal(ctx);
-
-      if (
-        wasPending &&
-        goal?.status === "active" &&
-        matchesGoal(goal, entry.goal) &&
-        canRecover?.(ctx) === true
-      ) {
-        pi.sendMessage(
-          {
-            content: `Account recovery for saved goal ${goal.id}, revision ${goal.revision}. Read get_goal and continue only if this goal is still active.\n${goal.objective}`,
-            customType: "pi-t3-goal-recovery",
-            display: true,
-          },
-          { triggerTurn: true }
-        );
-      }
-    } catch {
-      // Invalid goal state must not turn an old recovery into a user prompt.
-      return { action: "handled" };
+    if ((await arrived(ctx, event.text)) !== undefined) {
+      recoverGoal(ctx, forGoal);
     }
 
     return { action: "handled" };
   });
 
   pi.on("before_agent_start", async (event, ctx) => {
-    const marker = MARKER.exec(
-      event.messageType === "user" ? event.prompt : ""
-    )?.[1];
-
-    if (marker === undefined) {
-      return;
+    if (event.messageType === "user") {
+      await arrived(ctx, event.prompt);
     }
-
-    const entry = pending(ctx).find((candidate) => candidate.marker === marker);
-
-    if (entry === undefined) {
-      return;
-    }
-
-    await retire(entry);
   });
 };

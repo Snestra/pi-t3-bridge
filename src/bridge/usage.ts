@@ -4,10 +4,10 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { accountLines, readAccounts } from "./accounts.ts";
-import { appendLedger, readLedger } from "./state.ts";
-import type { LedgerLine } from "./state.ts";
-import { isDelegated, ownThreadId } from "./thread.ts";
+import { accountLines, delegatedChildren, readFamilies } from "./accounts.ts";
+import { appendLedger, readLedger } from "./ledger.ts";
+import type { LedgerLine } from "./ledger.ts";
+import { isDelegatedChild, ownThreadId } from "./thread.ts";
 
 // What this thread and its children cost, from what Pi already records on
 // each assistant message and what each child wrote to the ledger. It reads
@@ -114,7 +114,7 @@ const mergedChildLine = (
 
 const usageText = (ctx: ExtensionContext): string => {
   const thread = sumUsage(assistantMessages(ctx));
-  const { delegated, families } = readAccounts(ctx);
+  const delegated = delegatedChildren(ctx);
   const ledger = readLedger();
 
   const children = delegated.map((threadId) => ({
@@ -127,7 +127,7 @@ const usageText = (ctx: ExtensionContext): string => {
     0
   );
 
-  const out = accountLines(families);
+  const out = accountLines(readFamilies());
 
   return [
     `This thread: ${thread.replies} replies, ${count(thread.tokens)} tokens, ${dollars(thread.cost)}, cache hit rate ${hitRate(thread.input, thread.cacheRead, thread.cacheWrite)}.`,
@@ -144,7 +144,6 @@ const usageText = (ctx: ExtensionContext): string => {
 };
 
 export const registerUsage = (pi: ExtensionAPI): void => {
-  // A delegated child records what it cost, so its parent can report it.
   pi.on("message_end", async (event, ctx) => {
     const { message } = event;
 
@@ -152,9 +151,7 @@ export const registerUsage = (pi: ExtensionAPI): void => {
       return;
     }
 
-    const own = await ownThreadId();
-
-    if (own === null || !isDelegated(own)) {
+    if (!(await isDelegatedChild())) {
       return;
     }
 
@@ -168,7 +165,7 @@ export const registerUsage = (pi: ExtensionAPI): void => {
       cost: Number(usage.cost.toFixed(4)),
       input: usage.input,
       model: ctx.model?.id ?? null,
-      threadId: own,
+      threadId: await ownThreadId(),
       tokens: usage.tokens,
     });
   });

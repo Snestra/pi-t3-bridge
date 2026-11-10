@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as piSdk from "@earendil-works/pi-coding-agent";
 
-const extensionDir = path.dirname(import.meta.dirname);
+import { createSession } from "./harness.mjs";
 
 const piRoot = path.dirname(
   path.dirname(
@@ -191,16 +191,6 @@ const statusRecorder = () => {
 
 const startSession = async ({ name, ui }) => {
   const root = path.join(temporary, name);
-  const cwd = path.join(root, "workspace");
-  const agentDir = path.join(root, "agent");
-
-  await mkdir(cwd, { recursive: true });
-  await mkdir(agentDir, { recursive: true });
-
-  const settingsManager = piSdk.SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: false },
-  });
 
   const mcpExtension = piSdk.createMcpExtension({
     credentials: new McpOAuthCredentialStore(new InMemoryAuthStorageBackend()),
@@ -209,32 +199,14 @@ const startSession = async ({ name, ui }) => {
     openUrl: () => {},
   });
 
-  const loader = new piSdk.DefaultResourceLoader({
-    additionalExtensionPaths: [
-      path.join(extensionDir, "bridge.ts"),
-      path.join(extensionDir, "pstack.ts"),
-    ],
-    agentDir,
-    cwd,
+  const { loader, session } = await createSession({
     extensionFactories: [mcpExtension],
-    noContextFiles: true,
-    noExtensions: true,
-    noPromptTemplates: true,
-    noSkills: true,
-    noThemes: true,
-    settingsManager,
+    jev: false,
+    name,
+    root: temporary,
   });
 
-  await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
-
-  const { session } = await piSdk.createAgentSession({
-    agentDir,
-    cwd,
-    resourceLoader: loader,
-    sessionManager: piSdk.SessionManager.inMemory(cwd),
-    settingsManager,
-  });
 
   const errors = [];
 

@@ -2,13 +2,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { arr, bool, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import {
-  escapeHtml,
-  frameHeight,
-  pageHtml,
-  renderInlineCard,
-  wrappedLines,
-} from "./cards.ts";
+import { renderInlineCard, taskCard } from "./cards.ts";
 
 const TaskStatusSchema = oneOf(["pending", "in_progress", "completed"]);
 
@@ -42,21 +36,10 @@ type TaskStatus = Static<typeof TaskStatusSchema>;
 
 type TaskSnapshot = Static<typeof TaskSnapshotSchema>;
 
-interface TaskProgress {
-  readonly completed: number;
-  readonly total: number;
-}
-
-interface StatusPresentation {
-  readonly label: string;
-  readonly mark: string;
-  readonly word: string;
-}
-
-const STATUS_PRESENTATION: Readonly<Record<TaskStatus, StatusPresentation>> = {
-  completed: { label: "Completed", mark: "✓", word: "done" },
-  in_progress: { label: "In progress", mark: "●", word: "doing" },
-  pending: { label: "Pending", mark: "○", word: "todo" },
+const WORDS: Readonly<Record<TaskStatus, string>> = {
+  completed: "done",
+  in_progress: "doing",
+  pending: "todo",
 };
 
 const checkSnapshot = (snapshot: TaskSnapshot): void => {
@@ -75,59 +58,14 @@ const checkSnapshot = (snapshot: TaskSnapshot): void => {
   }
 };
 
-const taskProgress = (snapshot: TaskSnapshot): TaskProgress => ({
-  completed: snapshot.steps.filter((step) => step.status === "completed")
-    .length,
-  total: snapshot.steps.length,
-});
+const progress = (snapshot: TaskSnapshot): string =>
+  `${snapshot.steps.filter((step) => step.status === "completed").length} of ${snapshot.steps.length} complete`;
 
-const taskSummary = (snapshot: TaskSnapshot): string => {
-  const progress = taskProgress(snapshot);
-
-  const lines = snapshot.steps.map(
-    (step) => `[${STATUS_PRESENTATION[step.status].word}] ${step.text}`
-  );
-
-  return [
-    `Tasks: ${progress.completed} of ${progress.total} complete`,
-    ...lines,
+const taskSummary = (snapshot: TaskSnapshot): string =>
+  [
+    `Tasks: ${progress(snapshot)}`,
+    ...snapshot.steps.map((step) => `[${WORDS[step.status]}] ${step.text}`),
   ].join("\n");
-};
-
-const taskCardHtml = (snapshot: TaskSnapshot): string => {
-  const progress = taskProgress(snapshot);
-
-  const note =
-    snapshot.explanation === undefined
-      ? ""
-      : `<p class="note">${escapeHtml(snapshot.explanation)}</p>`;
-
-  const items = snapshot.steps
-    .map(
-      (step) =>
-        `<li class="${step.status}"><span class="dot" aria-hidden="true">${STATUS_PRESENTATION[step.status].mark}</span><span class="text"><span class="sr-only">${STATUS_PRESENTATION[step.status].label}: </span>${escapeHtml(step.text)}</span></li>`
-    )
-    .join("");
-
-  return pageHtml(
-    "Tasks",
-    `<main class="card"><div class="head"><h1>Tasks</h1><span class="muted">${progress.completed} of ${progress.total} complete</span></div>${note}<ol>${items}</ol></main>`
-  );
-};
-
-const taskCardHeight = (snapshot: TaskSnapshot): number => {
-  let height = 75;
-
-  if (snapshot.explanation !== undefined) {
-    height += wrappedLines(snapshot.explanation, 38) * 21 + 10;
-  }
-
-  for (const step of snapshot.steps) {
-    height += wrappedLines(step.text, 38) * 21 + 8;
-  }
-
-  return height;
-};
 
 const TaskToolDetailsSchema = obj(
   { rendered: bool(), snapshot: TaskSnapshotSchema },
@@ -149,11 +87,10 @@ export const tasksTool = defineTool({
   ) => {
     checkSnapshot(params);
 
-    const rendered = await renderInlineCard(ctx, {
-      height: frameHeight(taskCardHeight(params)),
-      html: taskCardHtml(params),
-      title: "Tasks",
-    });
+    const rendered = await renderInlineCard(
+      ctx,
+      taskCard({ ...params, progress: progress(params) })
+    );
 
     const details: TaskToolDetails = { rendered, snapshot: params };
 

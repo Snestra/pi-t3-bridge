@@ -6,11 +6,11 @@ import type {
   ExtensionContext,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { bool, compile, obj, opt, str } from "@earendil-works/pi-schema";
+import { compile, obj, opt, str } from "@earendil-works/pi-schema";
 
-import { TERMINAL_STATUSES } from "./accounts.ts";
+import { sincePrompt } from "./branch.ts";
 import { readConfig } from "./config.ts";
-import { appendSteerLog } from "./state.ts";
+import { appendLog } from "./state.ts";
 import {
   judgeMast,
   judgeStop,
@@ -23,11 +23,10 @@ import {
   MAST_NOTE,
   STEER_NOTE,
   handoffRule,
-  isUser,
   mastExcerpt,
   stopInput,
 } from "./steer-transcript.ts";
-import { t3Json, t3Text } from "./t3-json.ts";
+import { waitingOnChild } from "./t3-tasks.ts";
 import { isDelegatedChild } from "./thread.ts";
 
 // When a run is about to stop, ask Jev how it ended. A run that quit early
@@ -44,8 +43,6 @@ import { isDelegatedChild } from "./thread.ts";
 const NUDGE_LIMITS = { length: 2, stop: 1 } as const;
 
 type NudgeGroup = keyof typeof NUDGE_LIMITS;
-
-const UNAWARE_OF_TERMINATION = "1.5";
 
 // A judge that takes longer must not hold up the end of a run. Without Jev the
 // judge is a chat model reading a 50 KiB prompt, and those calls took 1.7-5.9 s:
@@ -104,127 +101,51 @@ const atLimit = (ctx: ExtensionContext, group: NudgeGroup): boolean => {
   const branch = ctx.sessionManager.getBranch();
 
   return (
-    branch
-      .slice(branch.findLastIndex(isUser) + 1)
-      .filter((entry) => groupOf(entry) === group).length >= NUDGE_LIMITS[group]
+    sincePrompt(branch).filter((entry) => groupOf(entry) === group).length >=
+    NUDGE_LIMITS[group]
   );
 };
 
-// The newest note this feature added in the prompt, of either kind. MAST 1.5
-// ("you may be continuing past the end") would contradict a stop nudge sent
-// just before it, so it stays quiet then.
 const lastNoteIsStopNudge = (ctx: ExtensionContext): boolean => {
   const branch = ctx.sessionManager.getBranch();
 
-  const last = branch
-    .slice(branch.findLastIndex(isUser) + 1)
-    .findLast(
-      (entry) =>
-        entry.type === "custom_message" &&
-        (entry.customType === STEER_NOTE || entry.customType === MAST_NOTE)
-    );
+  const last = sincePrompt(branch).findLast(
+    (entry) =>
+      entry.type === "custom_message" &&
+      (entry.customType === STEER_NOTE || entry.customType === MAST_NOTE)
+  );
 
   return last?.type === "custom_message" && last.customType === STEER_NOTE;
 };
 
-const DELEGATE_TOOL = /(?:^|__)delegate_task$/u;
+interface SteerLogLine {
+  readonly capped?: boolean;
+  readonly error?: string;
+  readonly fired?: readonly string[];
+  readonly kind: string;
+  readonly mode: string;
+  readonly model: string;
+  readonly nudged: boolean;
+  readonly probabilities?: Readonly<Record<string, number>>;
+  readonly session: string;
+  readonly skipped?: "deadline";
+  readonly turn?: number;
+  readonly verdict?: {
+    readonly handoffMissing?: number | undefined;
+    readonly kind: string;
+    readonly unfinished: number;
+  };
+}
 
-// Results that report one delegated task's state.
-const TASK_TOOL = /(?:^|__)(?:delegate_task|task_status|task_cancel)$/u;
-
-const taskState = compile(
-  obj(
-    {
-      hasPendingChildRuns: opt(bool()),
-      status: opt(str()),
-      taskId: str(),
-      workState: opt(str()),
-    },
-    { open: true }
-  )
-);
-
-const isString = compile(str()).check;
-
-// How T3 wakes the parent, for example
-// "Delegated task node:… (Research pi stop lifecycle) [completed]".
-const WAKE = /Delegated task (?<taskId>\S+) .*?\[(?<status>[a-z_]+)\]/gu;
-
-// A child whose own turn finished while its children still run is not done.
-const finishedTask = (task: {
-  readonly hasPendingChildRuns?: boolean;
-  readonly status?: string;
-  readonly workState?: string;
-}): boolean =>
-  task.hasPendingChildRuns !== true &&
-  task.workState !== "waiting_for_children" &&
-  ((task.status !== undefined && TERMINAL_STATUSES.has(task.status)) ||
-    task.workState === "result_available");
-
-const userText = (entry: SessionEntry): string =>
-  entry.type === "message" && entry.message.role === "user"
-    ? t3Text({
-        content: isString(entry.message.content)
-          ? [{ text: entry.message.content }]
-          : entry.message.content,
-      })
-    : "";
-
-// T3 tells an orchestrator to end its turn while a delegated child runs, and
-// wakes it with a new prompt when the child finishes. A "keep going" nudge
-// then would make it poll, which T3 forbids. Each task's latest state is
-// followed across wake-ups, since one child can wake the parent while another
-// still runs. A delegate call made inside a codemode script shows only as a
-// nested call with no task ID, so it counts until the prompt ends, unless its
-// mode is "wait".
-export const waitingOnChild = (ctx: ExtensionContext): boolean => {
-  const branch = ctx.sessionManager.getBranch();
-  const running = new Set<string>();
-
-  for (const entry of branch) {
-    for (const wake of userText(entry).matchAll(WAKE)) {
-      if (finishedTask({ status: wake.groups?.status })) {
-        running.delete(wake.groups?.taskId ?? "");
-      }
-    }
-
-    if (
-      entry.type === "message" &&
-      entry.message.role === "toolResult" &&
-      TASK_TOOL.test(entry.message.toolName) &&
-      !entry.message.isError
-    ) {
-      const task = t3Json(taskState, entry.message);
-
-      if (task !== undefined && finishedTask(task)) {
-        running.delete(task.taskId);
-      } else if (task !== undefined) {
-        running.add(task.taskId);
-      }
-    }
+// One line per check, beside the ledger. It holds the verdict and never
+// transcript text. A log that cannot be written must not break a session.
+const appendSteerLog = (line: SteerLogLine): void => {
+  try {
+    appendLog("steer.jsonl", { time: new Date().toISOString(), ...line });
+  } catch {
+    // The check already ran.
   }
-
-  return (
-    running.size > 0 ||
-    branch
-      .slice(branch.findLastIndex(isUser) + 1)
-      .some(
-        (entry) =>
-          entry.type === "message" &&
-          entry.message.role === "toolResult" &&
-          (entry.message.nestedCalls?.calls ?? []).some(
-            (call) =>
-              DELEGATE_TOOL.test(call.name) &&
-              call.status === "ok" &&
-              call.arguments?.mode !== "wait"
-          )
-      )
-  );
 };
-
-// On unless the config says otherwise. Shadow judges and logs but never
-// changes the session.
-const steerMode = () => readConfig().steer ?? "on";
 
 const mastNote = (mode: MastMode, probability: number) => ({
   content: `MAST · ${mode.label} (p=${probability.toFixed(2)}): ${mode.note}`,
@@ -280,7 +201,6 @@ const tell = (
   }
 };
 
-// Cancelling the run cancels the judge too.
 const judgeSignal = (ctx: ExtensionContext): AbortSignal =>
   AbortSignal.any([
     AbortSignal.timeout(JUDGE_TIMEOUT_MS),
@@ -289,7 +209,7 @@ const judgeSignal = (ctx: ExtensionContext): AbortSignal =>
 
 export const registerSteer = (
   pi: ExtensionAPI,
-  goalOwnsRun: () => boolean = () => false
+  goalOwnsRun: () => boolean
 ): void => {
   let rule: string | undefined;
   let warned = false;
@@ -307,7 +227,7 @@ export const registerSteer = (
   const judgeFailed = (
     ctx: ExtensionContext,
     signal: AbortSignal,
-    line: Parameters<typeof appendSteerLog>[0],
+    line: SteerLogLine,
     error: string
   ): void => {
     if (!signal.aborted) {
@@ -318,15 +238,18 @@ export const registerSteer = (
     }
   };
 
-  // MAST state, per prompt.
   let armed = new Set<string>();
   let turn = 0;
   let scopeFrom: number | undefined;
   let awaitingPrompt = false;
   let lastTurnHadTools = false;
 
-  const arm = (): void => {
+  // A prompt starts with every mode armed, its turns counted from zero, and
+  // the MAST judge reading from where the branch stands.
+  const startPrompt = (from?: number): void => {
     armed = new Set(mastModes().map((mode) => mode.code));
+    turn = 0;
+    scopeFrom = from;
   };
 
   // Each mode fires once per prompt. It fires again only after a check puts
@@ -334,10 +257,10 @@ export const registerSteer = (
   // A held mode stays armed, so it can still fire later in the prompt.
   const decide = (
     probabilities: Readonly<Record<string, number>>,
-    held: (code: string) => boolean
+    held: (mode: MastMode) => boolean
   ) =>
     mastModes().filter((mode) => {
-      if (held(mode.code)) {
+      if (held(mode)) {
         return false;
       }
 
@@ -352,16 +275,12 @@ export const registerSteer = (
 
   pi.on("session_start", () => {
     warned = false;
-    arm();
-    turn = 0;
-    scopeFrom = undefined;
+    startPrompt();
   });
 
   pi.on("before_agent_start", (event, ctx) => {
     rule = handoffRule(event.systemPromptOptions.contextFiles);
-    arm();
-    turn = 0;
-    scopeFrom = ctx.sessionManager.getBranch().length;
+    startPrompt(ctx.sessionManager.getBranch().length);
     awaitingPrompt = true;
   });
 
@@ -380,9 +299,7 @@ export const registerSteer = (
     // without tool calls. A user message between tool turns steers the same
     // prompt.
     if (!lastTurnHadTools) {
-      arm();
-      turn = 0;
-      scopeFrom = ctx.sessionManager.getBranch().length;
+      startPrompt(ctx.sessionManager.getBranch().length);
     }
   });
 
@@ -398,7 +315,7 @@ export const registerSteer = (
 
     turn += 1;
 
-    const mode = steerMode();
+    const mode = readConfig().steer;
     const every = mastEvery();
 
     if (mode === "off" || turn % every !== 0) {
@@ -433,7 +350,7 @@ export const registerSteer = (
 
     const fired = decide(
       verdict.probabilities,
-      (code) => code === UNAWARE_OF_TERMINATION && stopNudged
+      (fire) => fire.quietAfterStopNudge === true && stopNudged
     );
 
     const noted = mode === "on" && fired.length > 0;
@@ -461,7 +378,7 @@ export const registerSteer = (
     event: AgentBeforeSettleEvent,
     ctx: ExtensionContext
   ): Promise<BoundaryResult | undefined> => {
-    const mode = steerMode();
+    const mode = readConfig().steer;
 
     // An error outcome is left to accounts.ts, which schedules the resume.
     if (mode === "off" || event.outcome !== "completed") {
@@ -516,6 +433,7 @@ export const registerSteer = (
       return;
     }
 
+    // A goal can take the run over while the judge thinks.
     if (goalOwnsRun()) {
       return;
     }

@@ -10,7 +10,6 @@ import { after, before, beforeEach, test } from "node:test";
 
 import * as piAi from "@earendil-works/pi-ai";
 
-import { classifyFailure } from "../src/bridge/failures.ts";
 import {
   brief,
   childRepo,
@@ -342,28 +341,58 @@ test("a brief with every section and a table target is dispatched", async () => 
 
 // Usage limits
 
-test("every recorded T3 failure is classified as expected", () => {
-  const now = Date.parse("2026-10-19T12:00:00.000Z");
+// Each fixture's child runs on a family of its own, so its mark stands alone.
+const fixtureFamily = (index) => `fixture${index}`;
 
-  for (const fixture of failureFixtures) {
-    const result = classifyFailure(fixture.failure, now);
+const expectedReset = (fixture, since) =>
+  fixture.resetAt ??
+  new Date(Date.parse(since) + fixture.resetInSeconds * 1000).toISOString();
 
-    assert.equal(result.kind, fixture.kind, fixture.failure.message);
+test("every recorded T3 failure marks its child's family as expected", async () => {
+  const world = newWorld();
+  const { session, turn } = await parent("failure-fixtures", world);
 
-    if (fixture.resetAt !== undefined) {
-      assert.equal(result.resetAt, fixture.resetAt, fixture.failure.message);
+  try {
+    await turn([
+      failureFixtures.map((_fixture, index) =>
+        delegate({
+          target: onPi(`${fixtureFamily(index)}-model`, "medium"),
+          task: brief(),
+        })
+      ),
+    ]);
+
+    for (const [index, { failure }] of failureFixtures.entries()) {
+      world.outcomes.set(`child-task-${index + 1}`, {
+        error: failure.message,
+        status: "failed",
+        title: failure.title,
+      });
     }
 
-    if (fixture.resetInSeconds !== undefined) {
+    await turn([resolved("implement", "S")]);
+
+    const { families } = await sharedState();
+
+    for (const [index, fixture] of failureFixtures.entries()) {
+      const record = families[fixtureFamily(index)];
+
       assert.equal(
-        result.resetAt,
-        new Date(now + fixture.resetInSeconds * 1000).toISOString()
+        record?.reason ?? "other",
+        fixture.kind,
+        fixture.failure.message
+      );
+      assert.ok(
+        record === undefined ||
+          Math.abs(
+            Date.parse(record.resetAt) -
+              Date.parse(expectedReset(fixture, record.since))
+          ) < 5000,
+        fixture.failure.message
       );
     }
-
-    if (result.kind === "unhealthy") {
-      assert.equal(result.resetAt, new Date(now + 15 * 60_000).toISOString());
-    }
+  } finally {
+    session.dispose();
   }
 });
 
@@ -1035,7 +1064,7 @@ test("a child that fills its disk with write and then reports is BLOCKED", async
   }
 });
 
-test("a batch of parallel bash calls scans the workdir at most twice", async () => {
+test("a batch of parallel bash calls queues at most one extra disk scan", async () => {
   const bin = path.join(temporary, "count-du-bin");
   const log = path.join(temporary, "count-du.log");
 

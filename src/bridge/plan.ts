@@ -3,26 +3,13 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  compile,
-  lit,
-  obj,
-  oneOf,
-  opt,
-  str,
-  union,
-} from "@earendil-works/pi-schema";
+import { compile, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import {
-  escapeHtml,
-  frameHeight,
-  markdownHtml,
-  pageHtml,
-  renderInlineCard,
-  wrappedLines,
-} from "./cards.ts";
+import { savedEntries } from "./branch.ts";
+import { planCard, renderInlineCard } from "./cards.ts";
 import { registerUnlessTaken } from "./claim.ts";
+import { isT3Tool } from "./t3-tasks.ts";
 
 const PLAN_GATE_ENTRY = "pi-t3-plan-gate";
 
@@ -30,16 +17,12 @@ const PLAN_CHOICES = ["Approve", "Revise", "Cancel"] as const;
 
 type PlanChoice = (typeof PLAN_CHOICES)[number];
 
-const PlanGateSchema = union([
-  obj({ state: lit("open") }, { open: true }),
-  obj(
-    {
-      planId: str(),
-      state: oneOf(["awaiting", "revising", "approved", "cancelled"]),
-    },
-    { open: true }
-  ),
-]);
+const PlanGateSchema = obj(
+  {
+    state: oneOf(["open", "awaiting", "revising", "approved", "cancelled"]),
+  },
+  { open: true }
+);
 
 type PlanGate = Static<typeof PlanGateSchema>;
 
@@ -56,68 +39,33 @@ const BLOCK_REASONS: Readonly<Partial<Record<PlanGate["state"], string>>> = {
     "The user asked for a revised plan. Only read-only tools run until the user approves a plan through the `plan` tool.",
 };
 
+// Tools Pi or T3 declare without a readOnlyHint that change no files.
 // Codemode runs each nested tool call through tool_call handlers, so the
 // calls it makes are checked one by one.
-const ALWAYS_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
   "codemode",
   "find",
   "grep",
   "ls",
-  "mcp__t3-code__html_preview",
-  "mcp__t3-code__html_render",
-  "mcp__t3-code__orchestrator_capabilities",
-  "mcp__t3-code__t3_thread_read",
-  "mcp__t3__orchestrator_capabilities",
-  "mcp__t3__t3_thread_read",
   "read",
   "tool_search",
 ]);
 
-const currentGate = (ctx: ExtensionContext): PlanGate => {
-  const entries = ctx.sessionManager.getBranch();
+const READ_ONLY_T3_TOOLS = [
+  "html_preview",
+  "html_render",
+  "orchestrator_capabilities",
+  "t3_thread_read",
+];
 
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-
-    if (
-      entry?.type === "custom" &&
-      entry.customType === PLAN_GATE_ENTRY &&
-      isPlanGate(entry.data)
-    ) {
-      return entry.data;
-    }
-  }
-
-  return OPEN_GATE;
-};
+const currentGate = (ctx: ExtensionContext): PlanGate =>
+  savedEntries(ctx, PLAN_GATE_ENTRY, isPlanGate).at(-1) ?? OPEN_GATE;
 
 export const planBlocked = (ctx: ExtensionContext): boolean =>
   BLOCK_REASONS[currentGate(ctx).state] !== undefined;
 
 const isPlanChoice = (value: string | undefined): value is PlanChoice =>
   PLAN_CHOICES.some((choice) => choice === value);
-
-interface PlanCard {
-  readonly height: number;
-  readonly html: string;
-}
-
-const planCard = (title: string, plan: string): PlanCard => {
-  const { diagramHeight, html, prose } = markdownHtml(plan);
-
-  return {
-    height: frameHeight(
-      70 +
-        wrappedLines(title, 40) * 21 +
-        wrappedLines(prose, 30) * 21 +
-        diagramHeight
-    ),
-    html: pageHtml(
-      title,
-      `<main class="card"><div class="head"><h1>${escapeHtml(title)}</h1></div><div class="md">${html}</div></main>`
-    ),
-  };
-};
 
 const PlanSchema = obj(
   {
@@ -130,19 +78,14 @@ const PlanSchema = obj(
   { open: true }
 );
 
-interface PlanToolDetails {
-  readonly choice: PlanChoice | "dismissed";
-  readonly feedback?: string;
-  readonly planId: string;
-}
-
 export const registerPlanGate = (pi: ExtensionAPI): void => {
   const setGate = (gate: PlanGate): void => {
     pi.appendEntry(PLAN_GATE_ENTRY, gate);
   };
 
   const readOnly = (toolName: string): boolean =>
-    ALWAYS_ALLOWED_TOOLS.has(toolName) ||
+    READ_ONLY_TOOLS.has(toolName) ||
+    READ_ONLY_T3_TOOLS.some((name) => isT3Tool(toolName, name)) ||
     pi
       .getAllTools()
       .some(
@@ -176,7 +119,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
       description:
         "Ask the user to approve a plan before any file changes. Until the user approves, only read-only tools run. On Revise, change the plan and call this tool again. On Cancel, stop: only read-only tools run until the user's next message.",
       execute: async (
-        toolCallId,
+        _toolCallId,
         params: Static<typeof PlanSchema>,
         _signal,
         _onUpdate,
@@ -190,15 +133,15 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
 
         const title = params.title ?? "Proposed plan";
 
-        setGate({ planId: toolCallId, state: "awaiting" });
+        setGate({ state: "awaiting" });
 
         let answer: string | undefined;
 
         try {
-          const rendered = await renderInlineCard(ctx, {
-            ...planCard(title, params.plan),
-            title,
-          });
+          const rendered = await renderInlineCard(
+            ctx,
+            planCard(title, params.plan)
+          );
 
           const question = rendered
             ? `Approve "${title}" shown above?`
@@ -214,9 +157,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
         const choice = isPlanChoice(answer) ? answer : "Cancel";
 
         if (choice === "Approve") {
-          setGate({ planId: toolCallId, state: "approved" });
-
-          const details: PlanToolDetails = { choice, planId: toolCallId };
+          setGate({ state: "approved" });
 
           return {
             content: [
@@ -225,7 +166,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
                 type: "text",
               },
             ],
-            details,
+            details: { choice },
           };
         }
 
@@ -233,13 +174,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
           const feedback =
             (await ctx.ui.input("What should change in the plan?")) ?? "";
 
-          setGate({ planId: toolCallId, state: "revising" });
-
-          const details: PlanToolDetails = {
-            choice,
-            feedback,
-            planId: toolCallId,
-          };
+          setGate({ state: "revising" });
 
           return {
             content: [
@@ -248,16 +183,11 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
                 type: "text",
               },
             ],
-            details,
+            details: { choice, feedback },
           };
         }
 
-        setGate({ planId: toolCallId, state: "cancelled" });
-
-        const details: PlanToolDetails = {
-          choice: answer === undefined ? "dismissed" : choice,
-          planId: toolCallId,
-        };
+        setGate({ state: "cancelled" });
 
         return {
           content: [
@@ -266,7 +196,7 @@ export const registerPlanGate = (pi: ExtensionAPI): void => {
               type: "text",
             },
           ],
-          details,
+          details: { choice: answer === undefined ? "dismissed" : choice },
           terminate: true,
         };
       },

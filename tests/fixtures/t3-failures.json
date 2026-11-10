@@ -1,23 +1,20 @@
 {
-  "source": "Distinct terminal failures from T3 statev2.sqlite, Oct 8 to Oct 20 2026, plus the pi rate limit 429 from Oct 31 2026. kind is the hand-checked expected class.",
+  "source": "Distinct terminal failures from T3 statev2.sqlite, Oct 8 to Oct 20 2026, plus the pi rate limit 429 from Oct 31 2026. kind is the hand-checked expected class. Each failure holds only what t3_thread_read returns for an error item: its title and its text.",
   "failures": [
     {
       "failure": {
-        "class": "provider_error",
         "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_011CfuEvu5Q5ADqVLK6n1GoB\"}"
       },
       "kind": "other"
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "401 {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"},\"request_id\":\"req_011CfuExFwHeHUYqAWaaw7yw\"}"
       },
       "kind": "other"
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "API error 429 [request_id=ba031d77-398e-4e31-a95b-a9e40e1d13ce]: Subscription quota exhausted. Your usage window resets at 2026-10-19T00:00:00Z. (rate_limit_error)"
       },
       "kind": "exhausted",
@@ -25,7 +22,6 @@
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "API error 429 [request_id=ed3968b9-4056-48fd-84fa-76e162e3a13d]: Subscription quota exhausted. Your usage window resets at 2026-10-19T00:00:00Z. (rate_limit_error)"
       },
       "kind": "exhausted",
@@ -33,7 +29,6 @@
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "API error 429 [request_id=f8efe0d7-e397-45eb-a370-fb58fe2282f7]: Subscription quota exhausted. Your usage window resets at 2026-10-19T00:00:00Z. (rate_limit_error)"
       },
       "kind": "exhausted",
@@ -41,56 +36,52 @@
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "Bad Gateway"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "Codex error: Request exceeds the maximum size"
       },
       "kind": "other"
     },
     {
       "failure": {
-        "class": "provider_error",
-        "message": "Codex error: This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request. If you\u2019re doing authorized security work that requires more cyber permissive safeguards, apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access before retrying."
+        "message": "Codex error: This content was flagged for possible cybersecurity risk. If this seems wrong, try rephrasing your request. If you’re doing authorized security work that requires more cyber permissive safeguards, apply for Daybreak access via https://platform.openai.com/settings/organization/status-and-access before retrying."
       },
       "kind": "other"
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "Provider is not configured: cliproxyapi"
       },
       "kind": "other"
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "The backend is temporarily overloaded. Please retry."
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "The provider could not start this turn. Retry the turn; if it keeps failing, check the provider setup and server logs."
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "WebSocket error"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "You have hit your ChatGPT usage limit. Try again in ~138 min."
       },
       "kind": "exhausted",
@@ -98,7 +89,6 @@
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "You have hit your ChatGPT usage limit. Try again in ~155 min."
       },
       "kind": "exhausted",
@@ -106,109 +96,104 @@
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "You have hit your ChatGPT usage limit."
       },
-      "kind": "exhausted"
+      "kind": "exhausted",
+      "resetInSeconds": 3600
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "auth_unavailable: no auth available (providers=claude, model=claude-opus-5-5; last upstream error: empty_stream: upstream stream closed before first payload); check Claude auth/key session and cooldown state via /v0/management/auth-files"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "auth_unavailable: no auth available (providers=codex, model=gpt-6-luna; last upstream error: websocket: close 1012)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "auth_unavailable: no auth available (providers=codex, model=gpt-6.1-sol; last upstream error: server_is_overloaded: Our servers are currently overloaded. Please try again later.)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "auth_unavailable: no auth available (providers=codex, model=gpt-6.1-sol; last upstream error: websocket: close 1012)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "auth_unavailable: no auth available (providers=meta, model=muse-spark-1.3; last upstream error: service_overloaded: The backend is temporarily overloaded. Please retry.)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "auth_unavailable: no auth available (providers=meta, model=muse-wonder-full-1.0; last upstream error: gateway_timeout: The response stream did not start before the server timeout.)"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "fetch failed"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "network error: Codex error: stream error: stream disconnected before completion: stream closed before response.completed"
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "{\"error\":\"Invalid API key\"}"
       },
       "kind": "other"
     },
     {
       "failure": {
-        "class": "transport_error",
         "message": "Claude API unknown."
       },
-      "kind": "unhealthy"
+      "kind": "other"
     },
     {
       "failure": {
-        "class": "unknown",
         "message": "The provider event stream closed unexpectedly. Retry the turn; if it keeps failing, check the provider and server logs."
       },
-      "kind": "unhealthy"
+      "kind": "unhealthy",
+      "resetInSeconds": 900
     },
     {
       "failure": {
-        "class": "usage_limit",
         "message": "API error 429 [request_id=9ac8537b-79b1-45b1-b631-95736687a0ed]: Subscription quota exhausted. Your usage window resets at 2026-10-19T19:24:04Z. (rate_limit_error)",
-        "resetAt": "2026-10-19T19:24:04.000Z"
+        "title": "Usage limit reached"
       },
       "kind": "exhausted",
       "resetAt": "2026-10-19T19:24:04.000Z"
     },
     {
       "failure": {
-        "class": "usage_limit",
         "message": "Claude API rate limit reached. Try again later.",
-        "resetAt": "2026-10-19T21:00:00.000Z"
+        "title": "Usage limit reached"
       },
       "kind": "exhausted",
-      "resetAt": "2026-10-19T21:00:00.000Z"
+      "resetInSeconds": 3600
     },
     {
       "failure": {
-        "class": "provider_error",
         "message": "429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your account's rate limit. Please try again later.\"}}"
       },
       "kind": "exhausted",

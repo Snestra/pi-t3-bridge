@@ -4,15 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 
-import {
-  applyOverlay,
-  loadManifest,
-  materializePstack,
-} from "../src/pstack/overlay.ts";
+import { applyOverlay, materializePstack } from "../src/pstack/overlay.ts";
 
 const extensionDir = path.dirname(import.meta.dirname);
 const upstreamRoot = path.join(extensionDir, "pstack");
-const overlay = loadManifest(path.join(extensionDir, "overlay"));
 
 test("the served pstack is upstream with only the overlay applied", async () => {
   const cache = await mkdtemp(path.join(tmpdir(), "pi-t3-overlay-"));
@@ -196,5 +191,4 @@ test("a patch whose anchor upstream reworded fails with its file", () => {
       ),
     /overlay patch for skills\/x\/SKILL\.md no longer matches/u
   );
-  assert.equal(overlay.version, 1);
 });

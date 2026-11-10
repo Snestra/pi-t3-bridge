@@ -7,10 +7,9 @@ import { after, test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
 import * as piAi from "@earendil-works/pi-ai";
-import * as piSdk from "@earendil-works/pi-coding-agent";
 import { arr, obj, str } from "@earendil-works/pi-schema";
 
-const extensionDir = path.dirname(import.meta.dirname);
+import { createSession } from "./harness.mjs";
 
 const temporary = await mkdtemp(path.join(tmpdir(), "pi-t3-bridge-ask-"));
 const previousXdgConfigHome = process.env.XDG_CONFIG_HOME;
@@ -148,65 +147,19 @@ const call = (name, args) =>
 const done = () => piAi.fauxAssistantMessage("Done.");
 
 const startSession = async ({ foreign, mode = "rpc", name, script }) => {
-  const root = path.join(temporary, name);
-  const cwd = path.join(root, "workspace");
-  const agentDir = path.join(root, "agent");
-
-  await mkdir(cwd, { recursive: true });
-  await mkdir(agentDir, { recursive: true });
-
-  const faux = piAi.fauxProvider({ provider: `faux-${name}` });
-
-  const modelRuntime = await piSdk.ModelRuntime.create({
-    authPath: path.join(agentDir, "auth.json"),
-    modelsPath: null,
-  });
-
-  modelRuntime.registerNativeProvider(faux.provider);
-  await modelRuntime.setRuntimeApiKey(`faux-${name}`, "test");
-
-  const settingsManager = piSdk.SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: false },
-  });
-
   const delegated = [];
 
-  const loader = new piSdk.DefaultResourceLoader({
-    additionalExtensionPaths: [
-      path.join(extensionDir, "bridge.ts"),
-      path.join(extensionDir, "pstack.ts"),
-    ],
-    agentDir,
-    cwd,
+  const { faux, loader, session } = await createSession({
     extensionFactories:
       foreign === undefined
         ? [stubTools(delegated)]
         : [stubTools(delegated), foreignAsk(foreign)],
-    noContextFiles: true,
-    noExtensions: true,
-    noPromptTemplates: true,
-    noSkills: true,
-    noThemes: true,
-    settingsManager,
+    jev: false,
+    name,
+    root: temporary,
   });
 
-  await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);
-
-  const { session } = await piSdk.createAgentSession({
-    agentDir,
-    cwd,
-    model: faux.getModel(),
-    modelRuntime,
-    resourceLoader: loader,
-    sessionManager: piSdk.SessionManager.create(
-      cwd,
-      path.join(root, "sessions")
-    ),
-    settingsManager,
-    thinkingLevel: "off",
-  });
 
   const ui = script === undefined ? undefined : scriptedUi(script);
 

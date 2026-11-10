@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
@@ -14,13 +14,11 @@ import {
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import { materializePstack, overlayDir } from "./overlay.ts";
+import { materializePstack } from "./overlay.ts";
 
 export interface PstackPaths {
-  readonly extensionDir: string;
   readonly pstackRoot: string;
   readonly skillsDir: string;
-  readonly upstreamRoot: string;
 }
 
 let cached: PstackPaths | undefined;
@@ -33,13 +31,14 @@ export const pstackPaths = (): PstackPaths => {
   const extensionDir = path.resolve(import.meta.dirname, "../..");
   const upstreamRoot = path.join(extensionDir, "pstack");
 
-  const pstackRoot = materializePstack(upstreamRoot, overlayDir(extensionDir));
+  const pstackRoot = materializePstack(
+    upstreamRoot,
+    path.join(extensionDir, "overlay")
+  );
 
   cached = {
-    extensionDir,
     pstackRoot,
     skillsDir: path.join(pstackRoot, "skills"),
-    upstreamRoot,
   };
 
   return cached;
@@ -116,12 +115,4 @@ export const readPolicy = (): Policy => {
   policy = parsed;
 
   return policy;
-};
-
-export const skillPaths = (paths: PstackPaths): string[] => {
-  if (!existsSync(paths.skillsDir)) {
-    return [];
-  }
-
-  return [paths.skillsDir];
 };

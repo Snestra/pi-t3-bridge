@@ -5,14 +5,12 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { readConfig } from "./config.ts";
-import { readT3Credential, writeT3Credential } from "./state.ts";
 import { insideT3 } from "./t3-http.ts";
-import { signInLocally, tokenRejected } from "./t3-sign-in.ts";
+import { savedCredential, signInLocally, tokenRejected } from "./t3-sign-in.ts";
 
 const SERVER_NAME = "t3";
 const TOOL_PREFIX = `mcp__${SERVER_NAME}__`;
 const STATUS_KEY = "t3-mcp";
-const DEFAULT_URL = "http://127.0.0.1:3773/mcp";
 const PROBE_TIMEOUT_MS = 1500;
 const REFRESH_INTERVAL_MS = 3000;
 
@@ -97,7 +95,7 @@ const statusText = (state: T3McpState): string => {
   }
 };
 
-const serverUrl = (): string => readConfig().mcpUrl ?? DEFAULT_URL;
+const serverUrl = (): string => readConfig().mcpUrl;
 
 const metadataUrl = (url: string): string =>
   new URL("/.well-known/oauth-protected-resource", url).href;
@@ -166,7 +164,6 @@ export const registerT3Mcp = (pi: ExtensionAPI): void => {
       }
 
       if (credential !== undefined) {
-        writeT3Credential(credential);
         authFailed = false;
         ({ token } = credential);
       }
@@ -195,7 +192,7 @@ export const registerT3Mcp = (pi: ExtensionAPI): void => {
   };
 
   const savedToken = (): string | undefined => {
-    const saved = readT3Credential(url);
+    const saved = savedCredential(url);
 
     return saved !== undefined && saved.expiresAt - Date.now() > RENEW_BEFORE_MS
       ? saved.token

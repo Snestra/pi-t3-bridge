@@ -11,11 +11,12 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 
 import { arr, compile, map, num, obj, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
+
+import { statePath } from "../bridge/state.ts";
 
 interface Patch {
   readonly find: string;
@@ -41,12 +42,16 @@ const isOverlayManifest = compile(OverlayManifestSchema).check;
 type OverlayManifest = Static<typeof OverlayManifestSchema>;
 
 const TEXT_SUFFIX = ".md";
-const COPIED_ENTRIES = ["skills", "agents", "models.json"] as const;
 
-export const overlayDir = (extensionDir: string): string =>
-  path.join(extensionDir, "overlay");
+// What the agent reads from upstream. Each entry also feeds the copy's hash.
+const COPIED_ENTRIES = [
+  "skills",
+  "agents",
+  "models.json",
+  "hooks/session-start-context.md",
+] as const;
 
-export const loadManifest = (dir: string): OverlayManifest => {
+const loadManifest = (dir: string): OverlayManifest => {
   const manifestPath = path.join(dir, "overlay.json");
   const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
 
@@ -107,19 +112,6 @@ const walkFiles = (root: string, base = root): string[] =>
     return entry.isFile() ? [path.relative(root, full)] : [];
   });
 
-const overlayCacheRoot = (): string => {
-  const stateHome =
-    process.env.XDG_STATE_HOME?.trim() ||
-    path.join(homedir(), ".local", "state");
-
-  return path.join(stateHome, "pi-t3", "pstack-overlay");
-};
-
-const INPUT_ENTRIES = [
-  ...COPIED_ENTRIES,
-  "hooks/session-start-context.md",
-] as const;
-
 const fingerprint = (
   upstreamRoot: string,
   manifestText: string,
@@ -129,7 +121,7 @@ const fingerprint = (
     .update(manifestText)
     .update(extensionModules);
 
-  for (const entry of INPUT_ENTRIES) {
+  for (const entry of COPIED_ENTRIES) {
     const full = path.join(upstreamRoot, entry);
 
     if (!existsSync(full)) {
@@ -158,7 +150,7 @@ const fingerprint = (
 export const materializePstack = (
   upstreamRoot: string,
   dir: string,
-  cacheRoot: string = overlayCacheRoot()
+  cacheRoot: string = statePath("pstack-overlay")
 ): string => {
   if (!existsSync(path.join(upstreamRoot, "skills"))) {
     return upstreamRoot;
@@ -200,17 +192,6 @@ export const materializePstack = (
       if (existsSync(from)) {
         cpSync(from, path.join(staging, entry), { recursive: true });
       }
-    }
-
-    const hookFrom = path.join(
-      upstreamRoot,
-      "hooks",
-      "session-start-context.md"
-    );
-
-    if (existsSync(hookFrom)) {
-      mkdirSync(path.join(staging, "hooks"), { recursive: true });
-      cpSync(hookFrom, path.join(staging, "hooks", "session-start-context.md"));
     }
 
     // Scripts under skills/ import packages such as commander. Inside the

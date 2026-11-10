@@ -12,6 +12,7 @@ import type {
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   arr,
+  bool,
   compile,
   int,
   lit,
@@ -429,6 +430,9 @@ const MastModeSchema = obj(
     field: str(),
     label: str(),
     note: str(),
+    // "You may be continuing past the end" would contradict a stop nudge
+    // sent just before it, so such a mode stays quiet then.
+    quietAfterStopNudge: opt(bool()),
     threshold: num(),
   },
   { open: true }

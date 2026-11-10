@@ -1,6 +1,8 @@
 import path from "node:path";
 
-import type { ExtensionAPI, SourceInfo } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+import { claimName } from "./claim.ts";
 
 interface CatalogSkill {
   readonly description: string;
@@ -82,31 +84,11 @@ const compactSkillCatalog = (
 };
 
 // Another package's skills tool hides Pi's catalog and serves skills itself.
-// That package registers at load, after this extension, so the check waits
-// for session_start, when every extension has registered its tools.
 export const registerSkills = (pi: ExtensionAPI): void => {
-  let conflict: SourceInfo | undefined;
-  let warned = false;
+  const taken = claimName(pi, "skills", "pi-t3's skill catalog");
 
-  pi.on("session_start", () => {
-    conflict = pi
-      .getAllTools()
-      .find((tool) => tool.name === "skills")?.sourceInfo;
-  });
-
-  pi.on("before_agent_start", (event, ctx) => {
-    if (conflict !== undefined) {
-      if (event.messageType === "user" && !warned && ctx.hasUI) {
-        warned = true;
-
-        const source = conflict.source || conflict.path;
-
-        ctx.ui.notify(
-          `pi-t3's skill catalog is off because ${source} provides skills. Remove ${source} from ~/.pi/agent/settings.json packages to switch.`,
-          "warning"
-        );
-      }
-
+  pi.on("before_agent_start", (event) => {
+    if (taken()) {
       return;
     }
 

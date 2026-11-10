@@ -67,8 +67,10 @@ const AnswerSchema = union([
   obj({ kind: lit("rephrase"), question: int() }),
 ]);
 
+const StopKindSchema = oneOf(["dismissed", "timed_out"]);
+
 const StopSchema = obj({
-  kind: oneOf(["dismissed", "timed_out"]),
+  kind: StopKindSchema,
   question: int(),
   unasked: int(),
 });
@@ -367,3 +369,19 @@ const askTool = defineTool({
 export const registerAsk = (pi: ExtensionAPI): void => {
   registerUnlessTaken(pi, askTool);
 };
+
+// Only the stop's kind matters here, so another package's ask with more or
+// fewer fields on its stop still counts.
+const stopped = compile(
+  obj({ stop: obj({ kind: StopKindSchema }, { open: true }) }, { open: true })
+);
+
+// Whether a call to an `ask` tool, this one or another package's with the
+// same result shape, ended without the user's answer.
+export const askStopped = (result: {
+  readonly details?: unknown;
+  readonly structuredContent?: unknown;
+  readonly toolName: string;
+}): boolean =>
+  /(?:^|__)ask$/u.test(result.toolName) &&
+  (stopped.check(result.structuredContent) || stopped.check(result.details));

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import type {
   ExtensionAPI,
@@ -21,20 +19,23 @@ import {
 import type { Static } from "@earendil-works/pi-schema";
 
 import {
-  family,
   parseEntry,
   parseSheet,
 } from "../../pstack/skills/setup-pstack/scripts/t3-sheet.mjs";
+import { ACCOUNT_COMMAND } from "../bridge/account-commands.ts";
 import {
-  familyAvailable,
-  readAccounts,
+  family,
+  familyOpen,
+  readFamilies,
   settleChildren,
 } from "../bridge/accounts.ts";
 import { t3Json, t3Text } from "../bridge/t3-json.ts";
-import { ACCOUNT_COMMAND } from "./brief.ts";
+import { findT3Tool, isT3Tool } from "../bridge/t3-tasks.ts";
+import { SIZE_L_REFUSED } from "./brief.ts";
+import type { Size } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import type { Policy } from "./resources.ts";
-import { modelSheetPath } from "./session.ts";
+import { readSheet } from "./sheet.ts";
 
 const OptionValueSchema = union([str(), bool()]);
 
@@ -128,11 +129,6 @@ const ResolutionSchema = union([
 ]);
 
 type Resolution = Static<typeof ResolutionSchema>;
-
-const ORCHESTRATOR_CAPABILITIES_TOOLS = [
-  "mcp__t3-code__orchestrator_capabilities",
-  "mcp__t3__orchestrator_capabilities",
-] as const;
 
 const SIZE_FALLBACK: Readonly<Record<Complexity, readonly Complexity[]>> = {
   bounded: ["bounded", "groundwork", "general"],
@@ -236,6 +232,22 @@ const placeEntry = (
   return undefined;
 };
 
+const placeModel = (
+  model: string,
+  reasoning: string,
+  catalog: Catalog,
+  notes: string[]
+): Target | undefined =>
+  placeEntry(
+    {
+      model,
+      options: { reasoning },
+      providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
+    },
+    catalog,
+    notes
+  );
+
 const placeRouted = (
   modelFamily: string,
   complexity: Complexity,
@@ -252,12 +264,9 @@ const placeRouted = (
   }
 
   for (const size of SIZE_FALLBACK[complexity]) {
-    const placed = placeEntry(
-      {
-        model: sizes[size],
-        options: { reasoning: policy.routing.reasoning[complexity] },
-        providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
-      },
+    const placed = placeModel(
+      sizes[size],
+      policy.routing.reasoning[complexity],
       catalog,
       notes
     );
@@ -439,8 +448,6 @@ const findRole = (policy: Policy, roleName: string): Role => {
   return role;
 };
 
-type JobSize = "S" | "M" | "L";
-
 const tierOf = (policy: Policy, model: string): Complexity | undefined => {
   const sizes = policy.routing.families[family(model)];
 
@@ -472,15 +479,7 @@ const resolvePanelJob = (
 
   for (const seat of panel) {
     if (available(family(seat.model))) {
-      const placed = placeEntry(
-        {
-          model: seat.model,
-          options: { reasoning: seat.reasoning },
-          providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
-        },
-        catalog,
-        notes
-      );
+      const placed = placeModel(seat.model, seat.reasoning, catalog, notes);
 
       if (placed !== undefined) {
         targets.push(placed);
@@ -508,7 +507,7 @@ const resolvePanelJob = (
 const resolveJob = (
   role: Role,
   job: string,
-  size: JobSize | undefined,
+  size: Size | undefined,
   explicit: readonly Entry[],
   { available, catalog, notes, policy }: ResolveContext
 ): Resolution => {
@@ -533,9 +532,7 @@ const resolveJob = (
   }
 
   if (size === "L") {
-    throw new Error(
-      "Size L is too large to delegate: split the job into S or M tasks, or do it yourself."
-    );
+    throw new Error(SIZE_L_REFUSED);
   }
 
   if (size === undefined) {
@@ -581,15 +578,7 @@ const resolveJob = (
       const placed =
         model === undefined
           ? undefined
-          : placeEntry(
-              {
-                model,
-                options: { reasoning: wanted.reasoning },
-                providerInstanceId: catalog.inheritedProviderInstanceId ?? "",
-              },
-              catalog,
-              notes
-            );
+          : placeModel(model, wanted.reasoning, catalog, notes);
 
       if (placed !== undefined) {
         if (name !== wantedFamily) {
@@ -629,7 +618,7 @@ const resolveRole = (
     job?: string | undefined;
     policy: Policy;
     sheet: string;
-    size?: JobSize | undefined;
+    size?: Size | undefined;
   }
 ): Resolution => {
   const role = findRole(policy, roleName);
@@ -648,18 +637,8 @@ const resolveRole = (
   return resolveSingle(role, configured[0] ?? null, complexity, context);
 };
 
-const readSheet = (): string => {
-  try {
-    return readFileSync(modelSheetPath(), "utf-8");
-  } catch {
-    return "";
-  }
-};
-
 const readCatalog = async (ctx: ExtensionToolContext): Promise<Catalog> => {
-  const name = ORCHESTRATOR_CAPABILITIES_TOOLS.find((candidate) =>
-    ctx.tools.some((tool) => tool.name === candidate)
-  );
+  const name = findT3Tool(ctx.tools, "orchestrator_capabilities");
 
   if (name === undefined) {
     throw new Error(
@@ -686,50 +665,56 @@ const readCatalog = async (ctx: ExtensionToolContext): Promise<Catalog> => {
   return catalog;
 };
 
-const ComplexityOrJob = obj(
-  {
-    complexity: opt(ComplexitySchema),
-    job: opt(
-      str({
-        description:
-          "The job type from the routing table: mechanical, check, research, implement, hard, review, or design.",
-      })
-    ),
-    role: str({ description: "The pstack role name.", minLength: 1 }),
-    size: opt(
-      oneOf(["S", "M", "L"], {
-        description:
-          "S: 30 min or less and 5 files or fewer. M: 90 min or less and 15 files or fewer. L is refused: split it.",
-      })
-    ),
-  },
-  { open: true }
-);
+// The job types and size limits come from models.json, so the tool always
+// describes the table it routes with.
+const toolParameters = (policy: Policy) =>
+  obj(
+    {
+      complexity: opt(ComplexitySchema),
+      job: opt(
+        str({
+          description: `The job type from the routing table: ${Object.keys(policy.jobs).join(", ")}.`,
+        })
+      ),
+      role: str({ description: "The pstack role name.", minLength: 1 }),
+      size: opt(
+        oneOf(["S", "M", "L"], {
+          description: `${Object.entries(policy.briefs.sizes)
+            .map(
+              ([size, limit]) =>
+                `${size}: ${limit.minutes} min or less and ${limit.files} files or fewer.`
+            )
+            .join(" ")} L is refused: split it.`,
+        })
+      ),
+    },
+    { open: true }
+  );
 
-const modelTool = (pi: ExtensionAPI) =>
+const modelTool = (pi: ExtensionAPI, policy: Policy) =>
   defineTool({
     annotations: { readOnlyHint: true },
     description:
       "Resolve the delegate_task target for a pstack role. Pass the role name with the job and size from the routing table, or the complexity when there is no job. Pass each returned target as delegate_task's target. kind inherit-parent means omit target, and kind blocked means the role cannot run.",
     execute: async (
       _toolCallId,
-      params: Static<typeof ComplexityOrJob>,
+      params: Static<ReturnType<typeof toolParameters>>,
       _signal,
       _onUpdate,
       ctx
     ) => {
       await settleChildren(pi, ctx);
 
-      const accounts = readAccounts(ctx);
+      const families = readFamilies();
 
       const resolution = resolveRole(
         params.role,
         params.complexity ?? "general",
         {
-          available: (modelFamily) => familyAvailable(accounts, modelFamily),
+          available: (modelFamily) => familyOpen(families[modelFamily]),
           catalog: await readCatalog(ctx),
           job: params.job,
-          policy: readPolicy(),
+          policy,
           sheet: readSheet(),
           size: params.size,
         }
@@ -744,17 +729,16 @@ const modelTool = (pi: ExtensionAPI) =>
     label: "Pstack model",
     name: "pstack_model",
     outputSchema: ResolutionSchema,
-    parameters: ComplexityOrJob,
+    parameters: toolParameters(policy),
     promptSnippet: "Resolve the delegate_task target for a pstack role.",
   });
 
 export const registerModelRouting = (pi: ExtensionAPI): void => {
-  pi.registerTool(modelTool(pi));
+  pi.registerTool(modelTool(pi, readPolicy()));
 
   pi.on("tool_call", (event) => {
     if (
-      (event.toolName === "mcp__t3-code__t3_thread_send" ||
-        event.toolName === "mcp__t3__t3_thread_send") &&
+      isT3Tool(event.toolName, "t3_thread_send") &&
       isThreadSend(event.input) &&
       ACCOUNT_COMMAND.test(event.input.message)
     ) {

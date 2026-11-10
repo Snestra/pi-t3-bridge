@@ -4,13 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  SessionManager,
-  SettingsManager,
-  VERSION,
-} from "@earendil-works/pi-coding-agent";
+import { SessionManager, VERSION } from "@earendil-works/pi-coding-agent";
+
+import { createSession } from "./harness.mjs";
 
 const testDir = import.meta.dirname;
 const extensionDir = path.dirname(testDir);
@@ -61,30 +57,6 @@ test("the Pi extension loads the bundled pstack project and supplies session gui
   await writeFile(path.join(sheetDir, "models.md"), "session hook: on\n");
   process.env.XDG_CONFIG_HOME = configHome;
 
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: false },
-  });
-
-  const loader = new DefaultResourceLoader({
-    additionalExtensionPaths: [
-      path.join(extensionDir, "bridge.ts"),
-      path.join(extensionDir, "pstack.ts"),
-    ],
-    agentDir,
-    cwd,
-    noContextFiles: true,
-    noExtensions: true,
-    noPromptTemplates: true,
-    noSkills: true,
-    noThemes: true,
-    settingsManager,
-  });
-
-  await loader.reload();
-  assert.deepEqual(loader.getExtensions().errors, []);
-  assert.equal(loader.getExtensions().extensions.length, 2);
-
   const manager = SessionManager.create(cwd, path.join(temporary, "sessions"));
 
   const rootId = manager.appendMessage({
@@ -107,14 +79,16 @@ test("the Pi extension loads the bundled pstack project and supplies session gui
     timestamp: Date.now(),
   });
 
-  const { session } = await createAgentSession({
-    agentDir,
-    cwd,
-    resourceLoader: loader,
-    sessionManager: manager,
-    settingsManager,
+  const { loader, session } = await createSession({
+    jev: false,
+    name: "",
+    root: temporary,
+    sessionManager: () => manager,
     tools: [],
   });
+
+  assert.deepEqual(loader.getExtensions().errors, []);
+  assert.equal(loader.getExtensions().extensions.length, 2);
 
   const errors = [];
 
