@@ -35,10 +35,7 @@ const FIELDS = {
   // minutes, not for a quarter of an hour or forever.
   bashTimeoutSeconds: field(compile(num({ exclusiveMinimum: 0 })), 300),
   childSandbox: field(compile(oneOf(["on", "off"])), "on"),
-  classifierModel: field(compile(str({ pattern: "^[^/\\s]+/.+$" }))),
   mcpUrl: field(compile(str({ minLength: 1 })), "http://127.0.0.1:3773/mcp"),
-  // Shadow judges and logs but never changes the session.
-  steer: field(compile(oneOf(["on", "off", "shadow"])), "on"),
 };
 
 type Fields = typeof FIELDS;

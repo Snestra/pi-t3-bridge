@@ -362,6 +362,9 @@ const askTool = defineTool({
     // SAFETY: Pi validates the returned arguments against AskInputSchema next.
     return args as AskInput;
   },
+  promptGuidelines: [
+    "Use ask for every question to the user, including a request for a decision or an approval. Never end a reply with a question in plain text, because nobody answers it there.",
+  ],
   promptSnippet:
     "Ask the user for a decision or input and wait for the answer.",
 });

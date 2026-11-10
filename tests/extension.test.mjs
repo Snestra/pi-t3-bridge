@@ -80,7 +80,6 @@ test("the Pi extension loads the bundled pstack project and supplies session gui
   });
 
   const { loader, session } = await createSession({
-    jev: false,
     name: "",
     root: temporary,
     sessionManager: () => manager,

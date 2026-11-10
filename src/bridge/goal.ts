@@ -151,7 +151,6 @@ const parseCommand = (args: string): GoalCommand => {
 
 interface GoalRuntime {
   readonly identity: (ctx: ExtensionContext) => GoalIdentity | undefined;
-  readonly ownsRun: () => boolean;
   readonly recover: (ctx: ExtensionContext, identity: GoalIdentity) => void;
   readonly settle: (event: AgentSettledEvent, ctx: ExtensionContext) => void;
 }
@@ -610,7 +609,6 @@ export const registerGoal = (pi: ExtensionAPI): GoalRuntime => {
         ? identityOf(goal)
         : ownedRun;
     },
-    ownsRun: () => ownedRun !== undefined,
     // Invalid goal state must not turn an old recovery into a user prompt.
     recover: (ctx, identity) => {
       let goal: Goal | null;

@@ -154,51 +154,6 @@ export const newWorld = (catalog = liveCatalog) => ({
   started: 0,
 });
 
-// A classifier that answers nothing, so a session never reaches the real Jev
-// unless a test scripts one.
-const unscripted = () => ({
-  answers: {},
-  errorMessage: "No classifier is scripted for this session.",
-  stopReason: "error",
-});
-
-// Replaces the built-in `typesafe` provider with one whose classifier is a
-// function of the request: `classify(context)` returns `{ answers, stopReason }`.
-const registerClassifier = async (modelRuntime, classify) => {
-  modelRuntime.registerNativeProvider(
-    piAi.createProvider({
-      auth: {
-        apiKey: { name: "Test", resolve: () => Promise.resolve({ auth: {} }) },
-      },
-      classifiers: {
-        "typesafe-system-one": {
-          classify: async (model, context) => ({
-            api: model.api,
-            model: model.id,
-            provider: model.provider,
-            timestamp: Date.now(),
-            ...(await classify(context)),
-          }),
-        },
-      },
-      id: "typesafe",
-      models: [
-        {
-          api: "typesafe-system-one",
-          contextWindow: 64_000,
-          cost: { cacheRead: 0, cacheWrite: 0, input: 0, output: 0 },
-          id: "jev-latest",
-          input: ["text"],
-          name: "Jev test",
-          provider: "typesafe",
-          type: "classifier",
-        },
-      ],
-    })
-  );
-  await modelRuntime.setRuntimeApiKey("typesafe", "test");
-};
-
 // The Pi session recipe every test file shares: a faux provider, a model
 // runtime, a loader with this extension's files, and an agent session. It does
 // not bind extensions, so each caller binds its own UI.
@@ -207,19 +162,15 @@ const registerClassifier = async (modelRuntime, classify) => {
 //   extensions     file names in the repo root to load
 //   extensionFactories  extra in-process extensions
 //   modelId        the faux model's ID (and so its family); default faux model if unset
-//   jev            true: scripted classifier. false: no Jev at all. "builtin": leave Pi's own
-//   classify       scripts the stop judge when jev is true
 //   retry          Pi retry settings
 //   agentsFiles    the context files the session loads
 //   sessionManager (cwd, sessionsDir) => SessionManager, to replace the default
 //   tools          passed to createAgentSession
 export const createSession = async ({
   agentsFiles = [],
-  classify = unscripted,
   cwd,
   extensionFactories = [],
   extensions = ["bridge.ts", "pstack.ts"],
-  jev = true,
   modelId,
   name,
   retry = { enabled: false },
@@ -251,31 +202,8 @@ export const createSession = async ({
   modelRuntime.registerNativeProvider(faux.provider);
   await modelRuntime.setRuntimeApiKey(`faux-${name}`, "test");
 
-  if (jev === true) {
-    await registerClassifier(modelRuntime, classify);
-  } else if (jev === false) {
-    modelRuntime.registerNativeProvider(
-      piAi.createProvider({
-        auth: {
-          apiKey: {
-            name: "Test",
-            resolve: () => Promise.resolve({ auth: {} }),
-          },
-        },
-        classifiers: {
-          "typesafe-system-one": {
-            classify: () =>
-              Promise.reject(new Error("No Jev in this session.")),
-          },
-        },
-        id: "typesafe",
-        models: [],
-      })
-    );
-  }
-
   // Pi reports a new provider as configured only after a background refresh.
-  // A real session starts long before its first judge call, so wait for it.
+  // A real session starts long before its first model call, so wait for it.
   await modelRuntime.refresh({ allowNetwork: false });
 
   const settingsManager = piSdk.SettingsManager.inMemory({
@@ -324,16 +252,12 @@ export const createSession = async ({
 };
 
 // One Pi session with this extension loaded, driven by a scripted faux model.
-// `modelId` sets the session model's ID, and so its family. `classify` scripts
-// the stop judge, and `agentsFiles` are the context files the session loads.
-// `jev: false` swaps the built-in typesafe provider for one with no models, so
-// the session has no Jev even when TYPESAFE_API_KEY is set on the machine.
+// `modelId` sets the session model's ID, and so its family, and `agentsFiles`
+// are the context files the session loads.
 export const startSession = async ({
   agentsFiles = [],
-  classify = unscripted,
   cwd,
   extensions = ["bridge.ts", "pstack.ts"],
-  jev = true,
   modelId = "claude-opus-5-5",
   name,
   retry = { enabled: false },
@@ -346,11 +270,9 @@ export const startSession = async ({
     session,
   } = await createSession({
     agentsFiles,
-    classify,
     cwd,
     extensionFactories: world === undefined ? [] : [fakeT3(world)],
     extensions,
-    jev,
     modelId,
     name,
     retry,

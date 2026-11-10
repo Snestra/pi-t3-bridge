@@ -7,10 +7,10 @@ import { registerUnlessTaken } from "./src/bridge/claim.ts";
 import { registerConfig } from "./src/bridge/config.ts";
 import { registerGoal } from "./src/bridge/goal.ts";
 import { registerPlanGate } from "./src/bridge/plan.ts";
+import { registerReplyCheck } from "./src/bridge/reply-check.ts";
 import { registerResume } from "./src/bridge/resume.ts";
 import { registerSkills } from "./src/bridge/skills.ts";
 import { moveOldState } from "./src/bridge/state.ts";
-import { registerSteer } from "./src/bridge/steer.ts";
 import { registerT3Mcp } from "./src/bridge/t3-mcp.ts";
 import { tasksTool } from "./src/bridge/tasks.ts";
 import { registerTranscript } from "./src/bridge/transcript.ts";
@@ -43,7 +43,7 @@ const piT3Bridge = (pi: ExtensionAPI): void => {
     goal.settle(event, ctx);
   });
 
-  registerSteer(pi, goal.ownsRun);
+  registerReplyCheck(pi);
 };
 
 export default piT3Bridge;
