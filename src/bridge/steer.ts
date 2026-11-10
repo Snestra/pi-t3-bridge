@@ -8,6 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { compile, obj, opt, str } from "@earendil-works/pi-schema";
 
+import { sincePrompt } from "./branch.ts";
 import { readConfig } from "./config.ts";
 import { appendLog } from "./state.ts";
 import {
@@ -22,7 +23,6 @@ import {
   MAST_NOTE,
   STEER_NOTE,
   handoffRule,
-  sincePrompt,
   mastExcerpt,
   stopInput,
 } from "./steer-transcript.ts";

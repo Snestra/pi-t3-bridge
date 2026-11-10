@@ -6,6 +6,7 @@ import type {
 import { compile, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
+import { savedEntries } from "./branch.ts";
 import { planCard, renderInlineCard } from "./cards.ts";
 import { registerUnlessTaken } from "./claim.ts";
 import { isT3Tool } from "./t3-tasks.ts";
@@ -57,23 +58,8 @@ const READ_ONLY_T3_TOOLS = [
   "t3_thread_read",
 ];
 
-const currentGate = (ctx: ExtensionContext): PlanGate => {
-  const entries = ctx.sessionManager.getBranch();
-
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const entry = entries[index];
-
-    if (
-      entry?.type === "custom" &&
-      entry.customType === PLAN_GATE_ENTRY &&
-      isPlanGate(entry.data)
-    ) {
-      return entry.data;
-    }
-  }
-
-  return OPEN_GATE;
-};
+const currentGate = (ctx: ExtensionContext): PlanGate =>
+  savedEntries(ctx, PLAN_GATE_ENTRY, isPlanGate).at(-1) ?? OPEN_GATE;
 
 export const planBlocked = (ctx: ExtensionContext): boolean =>
   BLOCK_REASONS[currentGate(ctx).state] !== undefined;

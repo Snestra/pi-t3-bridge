@@ -5,6 +5,7 @@ import type {
 import { compile, int, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
+import { savedEntries } from "./branch.ts";
 import type { FamilyOut } from "./failures.ts";
 import { callT3Tool, insideT3 } from "./t3-http.ts";
 
@@ -48,15 +49,7 @@ const scheduled = compile(obj({ scheduledTaskId: str() }, { open: true }));
 export const isResumePrompt = (text: string): boolean => MARKER.test(text);
 
 const resumes = (ctx: ExtensionContext): Resume[] =>
-  ctx.sessionManager
-    .getBranch()
-    .flatMap((entry) =>
-      entry.type === "custom" &&
-      entry.customType === RESUME_ENTRY &&
-      isResume(entry.data)
-        ? [entry.data]
-        : []
-    );
+  savedEntries(ctx, RESUME_ENTRY, isResume);
 
 const pending = (ctx: ExtensionContext): Resume[] => {
   const all = resumes(ctx);

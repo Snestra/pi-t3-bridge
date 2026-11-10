@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
+import { askStopped } from "./ask.ts";
 import { registerUnlessTaken } from "./claim.ts";
 import { planBlocked } from "./plan.ts";
 import { isResumePrompt, recoveryPending } from "./resume.ts";
@@ -30,7 +31,6 @@ const HOLD_ENTRY = "pi-t3-goal-question";
 const INSTRUCTION = "pi-t3-goal-instruction";
 const WORDS = /^(?<word>\S+)(?:\s+(?<rest>[\s\S]*))?$/u;
 
-const ASK_TOOL = /(?:^|__)ask$/u;
 const TEXT = str({ minLength: 1, pattern: "\\S" });
 const REVISION = int({ maximum: Number.MAX_SAFE_INTEGER, minimum: 1 });
 const EVIDENCE = arr(obj({ requirement: TEXT, result: TEXT, source: TEXT }));
@@ -61,13 +61,6 @@ const UpdateSchema = obj({
 });
 
 const updateInput = compile(UpdateSchema);
-
-const stoppedQuestion = compile(
-  obj(
-    { stop: obj({ kind: oneOf(["dismissed", "timed_out"]) }, { open: true }) },
-    { open: true }
-  )
-);
 
 const questionHold = compile(
   obj({ goalId: TEXT, waiting: oneOf([true, false]) })
@@ -509,11 +502,7 @@ export const registerGoal = (pi: ExtensionAPI): GoalRuntime => {
     }
   });
   pi.on("tool_result", (event, ctx) => {
-    if (
-      ASK_TOOL.test(event.toolName) &&
-      (stoppedQuestion.check(event.structuredContent) ||
-        stoppedQuestion.check(event.details))
-    ) {
+    if (askStopped(event)) {
       const goal = readGoal(ctx);
 
       if (goal !== null && ownedRun?.id === goal.id) {

@@ -20,6 +20,7 @@ import {
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
+import { savedEntries } from "./branch.ts";
 import {
   NO_RESET_MS,
   classifyFailure,
@@ -131,15 +132,7 @@ const isAccountEvent = compile(AccountEventSchema).check;
 type AccountEvent = Static<typeof AccountEventSchema>;
 
 const accountEvents = (ctx: ExtensionContext): AccountEvent[] =>
-  ctx.sessionManager
-    .getBranch()
-    .flatMap((entry) =>
-      entry.type === "custom" &&
-      entry.customType === ACCOUNT_ENTRY &&
-      isAccountEvent(entry.data)
-        ? [entry.data]
-        : []
-    );
+  savedEntries(ctx, ACCOUNT_ENTRY, isAccountEvent);
 
 export const delegatedChildren = (ctx: ExtensionContext): string[] =>
   accountEvents(ctx).flatMap((event) =>

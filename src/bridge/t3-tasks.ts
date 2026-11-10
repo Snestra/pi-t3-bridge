@@ -4,6 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { bool, compile, obj, opt, str } from "@earendil-works/pi-schema";
 
+import { sincePrompt } from "./branch.ts";
 import { t3Json, t3Text } from "./t3-json.ts";
 
 // One T3 tool reaches Pi under several names: mcp__t3-code__<name> inside a
@@ -50,7 +51,7 @@ const finishedTask = (task: TaskState): boolean =>
 const WAKE = /Delegated task (?<taskId>\S+) .*?\[(?<status>[a-z_]+)\]/gu;
 
 export const isChildWake = (text: string): boolean =>
-  new RegExp(WAKE.source, "u").test(text);
+  !text.matchAll(WAKE).next().done;
 
 const taskState = compile(
   obj(
@@ -76,9 +77,6 @@ const userText = (entry: SessionEntry): string =>
           : entry.message.content,
       })
     : "";
-
-const isUser = (entry: SessionEntry): boolean =>
-  entry.type === "message" && entry.message.role === "user";
 
 // T3 tells an orchestrator to end its turn while a delegated child runs, and
 // wakes it with a new prompt when the child finishes. Each task's latest
@@ -120,18 +118,16 @@ export const waitingOnChild = (ctx: ExtensionContext): boolean => {
 
   return (
     running.size > 0 ||
-    branch
-      .slice(branch.findLastIndex(isUser) + 1)
-      .some(
-        (entry) =>
-          entry.type === "message" &&
-          entry.message.role === "toolResult" &&
-          (entry.message.nestedCalls?.calls ?? []).some(
-            (call) =>
-              isT3Tool(call.name, "delegate_task") &&
-              call.status === "ok" &&
-              call.arguments?.mode !== "wait"
-          )
-      )
+    sincePrompt(branch).some(
+      (entry) =>
+        entry.type === "message" &&
+        entry.message.role === "toolResult" &&
+        (entry.message.nestedCalls?.calls ?? []).some(
+          (call) =>
+            isT3Tool(call.name, "delegate_task") &&
+            call.status === "ok" &&
+            call.arguments?.mode !== "wait"
+        )
+    )
   );
 };

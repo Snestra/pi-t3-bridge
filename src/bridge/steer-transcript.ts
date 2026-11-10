@@ -1,6 +1,8 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { compile, str } from "@earendil-works/pi-schema";
 
+import { isUser } from "./branch.ts";
+
 // Turns the session branch into the text the stop judge reads. The rendering
 // follows pi-mast-steer's src/transcript.ts (MIT, github.com/dbreunig/pi-mast-steer):
 // user text, assistant text and tool calls, tool results, and other
@@ -148,15 +150,6 @@ const lastWindow = (log: string, size: number): string => {
 
   return newline === -1 || newline > size / 10 ? tail : tail.slice(newline + 1);
 };
-
-const isUser = (entry: SessionEntry): boolean =>
-  entry.type === "message" && entry.message.role === "user";
-
-// The entries after the last user message. Notes are custom messages, so
-// they never start a new prompt.
-export const sincePrompt = (
-  branch: readonly SessionEntry[]
-): readonly SessionEntry[] => branch.slice(branch.findLastIndex(isUser) + 1);
 
 const isAssistant = (entry: SessionEntry): boolean =>
   entry.type === "message" && entry.message.role === "assistant";
