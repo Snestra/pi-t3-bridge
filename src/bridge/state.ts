@@ -10,8 +10,6 @@ import {
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { lock } from "proper-lockfile";
-
 import {
   compile,
   lit,
@@ -25,6 +23,7 @@ import {
   union,
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
+import { lock } from "proper-lockfile";
 
 // Machine-wide bridge state, shared by every Pi session: which model families
 // are out of usage, and one ledger line per delegated brief.
