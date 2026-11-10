@@ -4,17 +4,24 @@
 // such as ChatGPT's, "Provider error", so the message decides.
 
 interface Failure {
-  readonly class?: string | null;
   readonly message: string;
-  readonly resetAt?: string | null;
+  readonly title?: string | null;
 }
 
-type FailureKind = "exhausted" | "unhealthy" | "other";
+// A failure that holds its family out names when the family opens again.
+export type Classified =
+  | { readonly kind: "other" }
+  | { readonly kind: "exhausted" | "unhealthy"; readonly resetAt: string };
 
-export interface Classified {
-  readonly kind: FailureKind;
-  readonly resetAt?: string;
-}
+export type FamilyOut = Exclude<Classified, { readonly kind: "other" }>;
+
+const USAGE_LIMIT_TITLE = "Usage limit reached";
+
+// A usage limit that names no reset time, or one the user reported without
+// one, holds the family out this long, and the resume waits as long. The next
+// task then probes the family, and another limit marks it out again, so no
+// mark waits on a person.
+export const NO_RESET_MS = 60 * 60_000;
 
 // cliproxy reports a family with no healthy account as auth_unavailable, most
 // often after an upstream overload. It recovers on its own, so the family
@@ -40,8 +47,8 @@ const RESETS_AT = /resets at (?<time>\d{4}-\d{2}-\d{2}T[\d:.]+Z)/u;
 
 const iso = (time: number): string => new Date(time).toISOString();
 
-const validTime = (text: string | null | undefined): string | undefined => {
-  if (text === undefined || text === null) {
+const validTime = (text: string | undefined): string | undefined => {
+  if (text === undefined) {
     return undefined;
   }
 
@@ -54,7 +61,6 @@ const resetFrom = (failure: Failure, now: number): string | undefined => {
   const minutes = RETRY_IN.exec(failure.message)?.[1];
 
   return (
-    validTime(failure.resetAt) ??
     validTime(RESETS_AT.exec(failure.message)?.[1]) ??
     (minutes === undefined ? undefined : iso(now + Number(minutes) * 60_000))
   );
@@ -64,12 +70,11 @@ export const classifyFailure = (
   failure: Failure,
   now = Date.now()
 ): Classified => {
-  if (failure.class === "usage_limit" || EXHAUSTED.test(failure.message)) {
-    const resetAt = resetFrom(failure, now);
-
-    return resetAt === undefined
-      ? { kind: "exhausted" }
-      : { kind: "exhausted", resetAt };
+  if (failure.title === USAGE_LIMIT_TITLE || EXHAUSTED.test(failure.message)) {
+    return {
+      kind: "exhausted",
+      resetAt: resetFrom(failure, now) ?? iso(now + NO_RESET_MS),
+    };
   }
 
   if (RATE_LIMITED.test(failure.message)) {
@@ -79,9 +84,24 @@ export const classifyFailure = (
     };
   }
 
-  if (failure.class === "transport_error" || UNHEALTHY.test(failure.message)) {
+  if (UNHEALTHY.test(failure.message)) {
     return { kind: "unhealthy", resetAt: iso(now + UNHEALTHY_MS) };
   }
 
   return { kind: "other" };
 };
+
+// The user's own report, with or without the time the account resets.
+export const reportedExhausted = (
+  resetAt: string | undefined,
+  now = Date.now()
+): FamilyOut => ({
+  kind: "exhausted",
+  resetAt:
+    resetAt === undefined ? iso(now + NO_RESET_MS) : iso(Date.parse(resetAt)),
+});
+
+const RANK = { exhausted: 2, other: 0, unhealthy: 1 } as const;
+
+export const worse = (left: Classified, right: Classified): Classified =>
+  RANK[right.kind] > RANK[left.kind] ? right : left;

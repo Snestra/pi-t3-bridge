@@ -6,11 +6,10 @@ import type {
   ExtensionContext,
   SessionEntry,
 } from "@earendil-works/pi-coding-agent";
-import { bool, compile, obj, opt, str } from "@earendil-works/pi-schema";
+import { compile, obj, opt, str } from "@earendil-works/pi-schema";
 
-import { TERMINAL_STATUSES } from "./accounts.ts";
 import { readConfig } from "./config.ts";
-import { appendSteerLog } from "./state.ts";
+import { appendLog } from "./state.ts";
 import {
   judgeMast,
   judgeStop,
@@ -27,7 +26,7 @@ import {
   mastExcerpt,
   stopInput,
 } from "./steer-transcript.ts";
-import { t3Json, t3Text } from "./t3-json.ts";
+import { waitingOnChild } from "./t3-tasks.ts";
 import { isDelegatedChild } from "./thread.ts";
 
 // When a run is about to stop, ask Jev how it ended. A run that quit early
@@ -127,99 +126,33 @@ const lastNoteIsStopNudge = (ctx: ExtensionContext): boolean => {
   return last?.type === "custom_message" && last.customType === STEER_NOTE;
 };
 
-const DELEGATE_TOOL = /(?:^|__)delegate_task$/u;
+interface SteerLogLine {
+  readonly capped?: boolean;
+  readonly error?: string;
+  readonly fired?: readonly string[];
+  readonly kind: string;
+  readonly mode: string;
+  readonly model: string;
+  readonly nudged: boolean;
+  readonly probabilities?: Readonly<Record<string, number>>;
+  readonly session: string;
+  readonly skipped?: "deadline";
+  readonly turn?: number;
+  readonly verdict?: {
+    readonly handoffMissing?: number | undefined;
+    readonly kind: string;
+    readonly unfinished: number;
+  };
+}
 
-// Results that report one delegated task's state.
-const TASK_TOOL = /(?:^|__)(?:delegate_task|task_status|task_cancel)$/u;
-
-const taskState = compile(
-  obj(
-    {
-      hasPendingChildRuns: opt(bool()),
-      status: opt(str()),
-      taskId: str(),
-      workState: opt(str()),
-    },
-    { open: true }
-  )
-);
-
-const isString = compile(str()).check;
-
-// How T3 wakes the parent, for example
-// "Delegated task node:… (Research pi stop lifecycle) [completed]".
-const WAKE = /Delegated task (?<taskId>\S+) .*?\[(?<status>[a-z_]+)\]/gu;
-
-// A child whose own turn finished while its children still run is not done.
-const finishedTask = (task: {
-  readonly hasPendingChildRuns?: boolean;
-  readonly status?: string;
-  readonly workState?: string;
-}): boolean =>
-  task.hasPendingChildRuns !== true &&
-  task.workState !== "waiting_for_children" &&
-  ((task.status !== undefined && TERMINAL_STATUSES.has(task.status)) ||
-    task.workState === "result_available");
-
-const userText = (entry: SessionEntry): string =>
-  entry.type === "message" && entry.message.role === "user"
-    ? t3Text({
-        content: isString(entry.message.content)
-          ? [{ text: entry.message.content }]
-          : entry.message.content,
-      })
-    : "";
-
-// T3 tells an orchestrator to end its turn while a delegated child runs, and
-// wakes it with a new prompt when the child finishes. A "keep going" nudge
-// then would make it poll, which T3 forbids. Each task's latest state is
-// followed across wake-ups, since one child can wake the parent while another
-// still runs. A delegate call made inside a codemode script shows only as a
-// nested call with no task ID, so it counts until the prompt ends, unless its
-// mode is "wait".
-export const waitingOnChild = (ctx: ExtensionContext): boolean => {
-  const branch = ctx.sessionManager.getBranch();
-  const running = new Set<string>();
-
-  for (const entry of branch) {
-    for (const wake of userText(entry).matchAll(WAKE)) {
-      if (finishedTask({ status: wake.groups?.status })) {
-        running.delete(wake.groups?.taskId ?? "");
-      }
-    }
-
-    if (
-      entry.type === "message" &&
-      entry.message.role === "toolResult" &&
-      TASK_TOOL.test(entry.message.toolName) &&
-      !entry.message.isError
-    ) {
-      const task = t3Json(taskState, entry.message);
-
-      if (task !== undefined && finishedTask(task)) {
-        running.delete(task.taskId);
-      } else if (task !== undefined) {
-        running.add(task.taskId);
-      }
-    }
+// One line per check, beside the ledger. It holds the verdict and never
+// transcript text. A log that cannot be written must not break a session.
+const appendSteerLog = (line: SteerLogLine): void => {
+  try {
+    appendLog("steer.jsonl", { time: new Date().toISOString(), ...line });
+  } catch {
+    // The check already ran.
   }
-
-  return (
-    running.size > 0 ||
-    branch
-      .slice(branch.findLastIndex(isUser) + 1)
-      .some(
-        (entry) =>
-          entry.type === "message" &&
-          entry.message.role === "toolResult" &&
-          (entry.message.nestedCalls?.calls ?? []).some(
-            (call) =>
-              DELEGATE_TOOL.test(call.name) &&
-              call.status === "ok" &&
-              call.arguments?.mode !== "wait"
-          )
-      )
-  );
 };
 
 // On unless the config says otherwise. Shadow judges and logs but never
@@ -307,7 +240,7 @@ export const registerSteer = (
   const judgeFailed = (
     ctx: ExtensionContext,
     signal: AbortSignal,
-    line: Parameters<typeof appendSteerLog>[0],
+    line: SteerLogLine,
     error: string
   ): void => {
     if (!signal.aborted) {

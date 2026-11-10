@@ -5,9 +5,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 import { readConfig } from "./config.ts";
-import { readT3Credential, writeT3Credential } from "./state.ts";
 import { insideT3 } from "./t3-http.ts";
-import { signInLocally, tokenRejected } from "./t3-sign-in.ts";
+import { savedCredential, signInLocally, tokenRejected } from "./t3-sign-in.ts";
 
 const SERVER_NAME = "t3";
 const TOOL_PREFIX = `mcp__${SERVER_NAME}__`;
@@ -166,7 +165,6 @@ export const registerT3Mcp = (pi: ExtensionAPI): void => {
       }
 
       if (credential !== undefined) {
-        writeT3Credential(credential);
         authFailed = false;
         ({ token } = credential);
       }
@@ -195,7 +193,7 @@ export const registerT3Mcp = (pi: ExtensionAPI): void => {
   };
 
   const savedToken = (): string | undefined => {
-    const saved = readT3Credential(url);
+    const saved = savedCredential(url);
 
     return saved !== undefined && saved.expiresAt - Date.now() > RENEW_BEFORE_MS
       ? saved.token

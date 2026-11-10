@@ -4,9 +4,9 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { accountLines, readAccounts } from "./accounts.ts";
-import { appendLedger, readLedger } from "./state.ts";
-import type { LedgerLine } from "./state.ts";
+import { accountLines, delegatedChildren, readFamilies } from "./accounts.ts";
+import { appendLedger, readLedger } from "./ledger.ts";
+import type { LedgerLine } from "./ledger.ts";
 import { isDelegated, ownThreadId } from "./thread.ts";
 
 // What this thread and its children cost, from what Pi already records on
@@ -114,7 +114,7 @@ const mergedChildLine = (
 
 const usageText = (ctx: ExtensionContext): string => {
   const thread = sumUsage(assistantMessages(ctx));
-  const { delegated, families } = readAccounts(ctx);
+  const delegated = delegatedChildren(ctx);
   const ledger = readLedger();
 
   const children = delegated.map((threadId) => ({
@@ -127,7 +127,7 @@ const usageText = (ctx: ExtensionContext): string => {
     0
   );
 
-  const out = accountLines(families);
+  const out = accountLines(readFamilies());
 
   return [
     `This thread: ${thread.replies} replies, ${count(thread.tokens)} tokens, ${dollars(thread.cost)}, cache hit rate ${hitRate(thread.input, thread.cacheRead, thread.cacheWrite)}.`,

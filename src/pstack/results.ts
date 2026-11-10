@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { compile, obj, str } from "@earendil-works/pi-schema";
 
-import { readLedger } from "../bridge/state.ts";
+import { readLedger } from "../bridge/ledger.ts";
 import { t3Json } from "../bridge/t3-json.ts";
 
 // T3 builds a delegated task's result from the child's streamed text, so the

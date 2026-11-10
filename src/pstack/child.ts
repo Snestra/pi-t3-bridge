@@ -21,7 +21,7 @@ import {
 } from "@earendil-works/pi-schema";
 
 import { bashTimeoutSeconds } from "../bridge/bash-timeout.ts";
-import { appendLedger } from "../bridge/state.ts";
+import { appendLedger } from "../bridge/ledger.ts";
 import { isDelegatedChild, ownThreadId } from "../bridge/thread.ts";
 import { incompleteBrief, sessionBrief } from "./brief.ts";
 import type { Brief, BriefRules } from "./brief.ts";

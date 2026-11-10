@@ -26,8 +26,8 @@ import {
   parseSheet,
 } from "../../pstack/skills/setup-pstack/scripts/t3-sheet.mjs";
 import {
-  familyAvailable,
-  readAccounts,
+  familyOpen,
+  readFamilies,
   settleChildren,
 } from "../bridge/accounts.ts";
 import { t3Json, t3Text } from "../bridge/t3-json.ts";
@@ -720,13 +720,13 @@ const modelTool = (pi: ExtensionAPI) =>
     ) => {
       await settleChildren(pi, ctx);
 
-      const accounts = readAccounts(ctx);
+      const families = readFamilies();
 
       const resolution = resolveRole(
         params.role,
         params.complexity ?? "general",
         {
-          available: (modelFamily) => familyAvailable(accounts, modelFamily),
+          available: (modelFamily) => familyOpen(families[modelFamily]),
           catalog: await readCatalog(ctx),
           job: params.job,
           policy: readPolicy(),

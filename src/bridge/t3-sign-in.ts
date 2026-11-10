@@ -6,8 +6,9 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { compile, num, obj, opt, str } from "@earendil-works/pi-schema";
+import type { Static } from "@earendil-works/pi-schema";
 
-import type { T3Credential } from "./state.ts";
+import { readState, writeState } from "./state.ts";
 
 // Signs pi in to the T3 Code server on this machine with no browser. The T3
 // CLI mints a one-time pairing code, and T3's own OAuth endpoints accept that
@@ -40,6 +41,25 @@ const isRegistration = compile(obj({ client_id: str() }, { open: true })).check;
 const isPairing = compile(obj({ credential: str() }, { open: true })).check;
 
 const isDecision = compile(obj({ redirectTo: str() }, { open: true })).check;
+
+// The bearer token pi signed in to T3's MCP server with. Only this user may
+// read the file, because the token can launch full-access threads.
+const CREDENTIAL = "t3-mcp.json";
+
+const T3CredentialSchema = obj(
+  { expiresAt: num(), token: str({ minLength: 1 }), url: str() },
+  { open: true }
+);
+
+const t3Credential = compile(T3CredentialSchema);
+
+type T3Credential = Static<typeof T3CredentialSchema>;
+
+export const savedCredential = (url: string): T3Credential | undefined => {
+  const saved = readState(CREDENTIAL, t3Credential);
+
+  return saved?.url === url ? saved : undefined;
+};
 
 const isToken = compile(
   obj({ access_token: str(), expires_in: num() }, { open: true })
@@ -182,7 +202,8 @@ export const tokenRejected = async (
   }
 };
 
-// Resolves to undefined when only a browser sign-in can reach `url`.
+// Saves the new credential. Resolves to undefined when only a browser
+// sign-in can reach `url`.
 export const signInLocally = async (
   url: string
 ): Promise<T3Credential | undefined> => {
@@ -276,9 +297,13 @@ export const signInLocally = async (
     "the token exchange"
   );
 
-  return {
+  const credential = {
     expiresAt: issuedAt + token.expires_in * 1000,
     token: token.access_token,
     url,
   };
+
+  writeState(CREDENTIAL, credential, 0o600);
+
+  return credential;
 };

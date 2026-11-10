@@ -20,27 +20,20 @@ import {
 import type { Static } from "@earendil-works/pi-schema";
 
 import { registerUnlessTaken } from "./claim.ts";
+import { planBlocked } from "./plan.ts";
+import { isResumePrompt, recoveryPending } from "./resume.ts";
+import type { GoalIdentity } from "./resume.ts";
+import { isChildWake, waitingOnChild } from "./t3-tasks.ts";
 
 const GOAL_ENTRY = "pi-t3-goal";
 const HOLD_ENTRY = "pi-t3-goal-question";
 const INSTRUCTION = "pi-t3-goal-instruction";
 const WORDS = /^(?<word>\S+)(?:\s+(?<rest>[\s\S]*))?$/u;
 
-const CHILD_WAKE = /Delegated task \S+ .*?\[[a-z_]+\]/u;
-
-const AUTOMATIC_INPUT = new RegExp(
-  String.raw`\[pi-t3-resume [\w-]+\]|${CHILD_WAKE.source}`,
-  "u"
-);
-
 const ASK_TOOL = /(?:^|__)ask$/u;
 const TEXT = str({ minLength: 1, pattern: "\\S" });
 const REVISION = int({ maximum: Number.MAX_SAFE_INTEGER, minimum: 1 });
 const EVIDENCE = arr(obj({ requirement: TEXT, result: TEXT, source: TEXT }));
-
-export const GoalIdentitySchema = obj({ id: TEXT, revision: REVISION });
-
-export type GoalIdentity = Static<typeof GoalIdentitySchema>;
 
 const GoalSchema = obj({
   evidence: EVIDENCE,
@@ -115,10 +108,10 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
   return goal;
 };
 
-export const matchesGoal = (
-  goal: Goal | null,
-  identity: GoalIdentity
-): boolean => goal?.id === identity.id && goal.revision === identity.revision;
+const identityOf = (goal: Goal): GoalIdentity => ({
+  id: goal.id,
+  revision: goal.revision,
+});
 
 const instruction = (goal: Goal): string =>
   `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for user approval or an answer stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
@@ -163,26 +156,14 @@ const parseCommand = (args: string): GoalCommand => {
   return { kind: "create", objective: text };
 };
 
-interface GoalCoordination {
-  readonly planBlocked: (ctx: ExtensionContext) => boolean;
-  readonly recoveryPending: (
-    ctx: ExtensionContext,
-    identity: GoalIdentity
-  ) => boolean;
-  readonly waitingOnChild: (ctx: ExtensionContext) => boolean;
-}
-
 interface GoalRuntime {
-  readonly canRecover: (ctx: ExtensionContext) => boolean;
-  readonly settle: (event: AgentSettledEvent, ctx: ExtensionContext) => void;
-  readonly ownsRun: () => boolean;
   readonly identity: (ctx: ExtensionContext) => GoalIdentity | undefined;
+  readonly ownsRun: () => boolean;
+  readonly recover: (ctx: ExtensionContext, identity: GoalIdentity) => void;
+  readonly settle: (event: AgentSettledEvent, ctx: ExtensionContext) => void;
 }
 
-export const registerGoal = (
-  pi: ExtensionAPI,
-  coordination: GoalCoordination
-): GoalRuntime => {
+export const registerGoal = (pi: ExtensionAPI): GoalRuntime => {
   let ownedRun: GoalIdentity | undefined;
   let waitingForUI = false;
   let failure: string | undefined;
@@ -246,7 +227,7 @@ export const registerGoal = (
 
     return (
       waitingForUI ||
-      coordination.planBlocked(ctx) ||
+      planBlocked(ctx) ||
       (last?.type === "custom" &&
         questionHold.check(last.data) &&
         last.data.goalId === goal.id &&
@@ -255,14 +236,14 @@ export const registerGoal = (
   };
 
   const held = (ctx: ExtensionContext, goal: Goal): boolean =>
-    needsUser(ctx, goal) || coordination.waitingOnChild(ctx);
+    needsUser(ctx, goal) || waitingOnChild(ctx);
 
   const start = (ctx: ExtensionContext, goal: Goal): void => {
     if (ctx.isIdle() && held(ctx, goal)) {
       return;
     }
 
-    ownedRun = { id: goal.id, revision: goal.revision };
+    ownedRun = identityOf(goal);
 
     if (ctx.isIdle()) {
       pi.sendMessage(
@@ -512,7 +493,7 @@ export const registerGoal = (
 
     if (
       goal?.status === "active" &&
-      CHILD_WAKE.test(event.text) &&
+      isChildWake(event.text) &&
       needsUser(ctx, goal)
     ) {
       return { action: "handled" };
@@ -521,7 +502,8 @@ export const registerGoal = (
     if (
       goal !== null &&
       event.source !== "extension" &&
-      !AUTOMATIC_INPUT.test(event.text)
+      !isResumePrompt(event.text) &&
+      !isChildWake(event.text)
     ) {
       pi.appendEntry(HOLD_ENTRY, { goalId: goal.id, waiting: false });
     }
@@ -542,10 +524,7 @@ export const registerGoal = (
   pi.on("before_agent_start", (_event, ctx) => {
     const goal = readGoal(ctx);
 
-    ownedRun =
-      goal?.status === "active"
-        ? { id: goal.id, revision: goal.revision }
-        : undefined;
+    ownedRun = goal?.status === "active" ? identityOf(goal) : undefined;
 
     failure = undefined;
   });
@@ -629,28 +608,49 @@ export const registerGoal = (
 
     if (event.aborted) {
       change(goal, { reason: "User stop.", status: "paused" });
-    } else if (
-      failure !== undefined &&
-      !coordination.recoveryPending(ctx, goal)
-    ) {
+    } else if (failure !== undefined && !recoveryPending(ctx, goal)) {
       change(goal, { reason: failure, status: "blocked" });
     }
   };
 
   return {
-    canRecover: (ctx) => {
-      const goal = readGoal(ctx);
-
-      return goal?.status === "active" && toolsOwned() && !held(ctx, goal);
-    },
     identity: (ctx) => {
       const goal = readGoal(ctx);
 
       return goal?.status === "active" && goal.id === ownedRun?.id
-        ? { id: goal.id, revision: goal.revision }
+        ? identityOf(goal)
         : ownedRun;
     },
     ownsRun: () => ownedRun !== undefined,
+    // Invalid goal state must not turn an old recovery into a user prompt.
+    recover: (ctx, identity) => {
+      let goal: Goal | null;
+
+      try {
+        goal = readGoal(ctx);
+      } catch {
+        return;
+      }
+
+      if (
+        goal?.status !== "active" ||
+        goal.id !== identity.id ||
+        goal.revision !== identity.revision ||
+        !toolsOwned() ||
+        held(ctx, goal)
+      ) {
+        return;
+      }
+
+      pi.sendMessage(
+        {
+          content: `Account recovery for saved goal ${goal.id}, revision ${goal.revision}. Read get_goal and continue only if this goal is still active.\n${goal.objective}`,
+          customType: "pi-t3-goal-recovery",
+          display: true,
+        },
+        { triggerTurn: true }
+      );
+    },
     settle,
   };
 };
