@@ -205,7 +205,10 @@ const legacySnapshot = compile(
   })
 );
 
-const OutputSchema = obj({ goal: nullable(GoalSchema) });
+const OutputSchema = obj({
+  goal: nullable(GoalSchema),
+  observed: arr(FactSchema),
+});
 const GetSchema = obj({});
 const getInput = compile(GetSchema);
 
@@ -760,8 +763,8 @@ const goalResult = (
   content: [
     { text: JSON.stringify({ goal, observed }), type: "text" as const },
   ],
-  details: { goal },
-  structuredContent: { goal },
+  details: { goal, observed },
+  structuredContent: { goal, observed },
 });
 
 type GoalCommand =
