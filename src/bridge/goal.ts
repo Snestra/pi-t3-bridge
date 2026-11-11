@@ -20,6 +20,7 @@ import {
   opt,
   oneOf,
   str,
+  union,
 } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
@@ -46,7 +47,36 @@ const WORDS = /^(?<word>\S+)(?:\s+(?<rest>[\s\S]*))?$/u;
 
 const TEXT = str({ minLength: 1, pattern: "\\S" });
 const REVISION = int({ maximum: Number.MAX_SAFE_INTEGER, minimum: 1 });
-const CONDITION = obj({ id: TEXT, text: TEXT });
+
+const PREDICATE = union([
+  obj({
+    command: TEXT,
+    exitCode: int(),
+    kind: lit("command"),
+    tool: oneOf(["bash", "powershell"]),
+  }),
+  obj({ contains: TEXT, kind: lit("file"), path: TEXT }),
+]);
+
+const CONDITION = obj({
+  id: TEXT,
+  predicate: opt(nullable(PREDICATE)),
+  text: TEXT,
+});
+
+const CRITERIA_ENTRY = "pi-t3-goal-criteria";
+
+const criteriaInput = compile(
+  obj({
+    at: int({ minimum: 0 }),
+    conditions: arr(CONDITION),
+    criteriaRevision: REVISION,
+    goalId: TEXT,
+    goalRevision: REVISION,
+    objective: TEXT,
+  })
+);
+
 const ACTION = obj({ instruction: TEXT, tool: TEXT });
 
 const EVIDENCE = arr(
@@ -99,6 +129,7 @@ const FactSchema = obj({
   producer: TEXT,
   revision: REVISION,
   success: oneOf([true, false]),
+  tool: opt(TEXT),
 });
 
 const factInput = compile(FactSchema);
@@ -107,6 +138,7 @@ const GoalSchema = obj({
   blocker: nullable(TEXT),
   blockerCycles: opt(int({ minimum: 0 })),
   conditions: arr(CONDITION),
+  criteriaRevision: opt(REVISION),
   cycleBlocker: opt(nullable(TEXT)),
   evidence: EVIDENCE,
   id: TEXT,
@@ -130,6 +162,7 @@ const GoalSchema = obj({
 
 export type Goal = Static<typeof GoalSchema> & {
   blockerCycles: number;
+  criteriaRevision: number;
   cycleBlocker: string | null;
   progressRequirements: string[];
 };
@@ -216,6 +249,7 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
         blocker: null,
         blockerCycles: 0,
         conditions: [],
+        criteriaRevision: 1,
         cycleBlocker: null,
         evidence: [],
         nextAction: {
@@ -250,6 +284,7 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
     : {
         ...goal,
         blockerCycles: goal.blockerCycles ?? 0,
+        criteriaRevision: goal.criteriaRevision ?? 1,
         cycleBlocker: goal.cycleBlocker ?? null,
         progressRequirements: goal.progressRequirements ?? [],
       };
@@ -353,7 +388,7 @@ const validateClaim = (
 
   if (
     item.kind === "command" &&
-    (fact.kind !== "command" || fact.exitCode !== 0)
+    (fact.kind !== "command" || fact.exitCode === undefined)
   ) {
     throw new Error("Not a mechanically checked command fact.");
   }
@@ -390,6 +425,112 @@ const reviewed = (
         )
     );
 
+export interface GoalAcceptanceSnapshot {
+  readonly approved: boolean;
+  readonly criteriaRevision: number;
+  readonly conditions: Goal["conditions"];
+  readonly objective: string;
+}
+
+export const goalAcceptanceSnapshot = (
+  ctx: ExtensionContext,
+  goal: Goal
+): GoalAcceptanceSnapshot => ({
+  approved: ctx.sessionManager
+    .getBranch()
+    .some(
+      (entry) =>
+        entry.type === "custom" &&
+        entry.customType === CRITERIA_ENTRY &&
+        criteriaInput.check(entry.data) &&
+        entry.data.goalId === goal.id &&
+        entry.data.criteriaRevision === goal.criteriaRevision &&
+        entry.data.objective === goal.objective &&
+        JSON.stringify(entry.data.conditions) ===
+          JSON.stringify(goal.conditions)
+    ),
+  conditions: goal.conditions,
+  criteriaRevision: goal.criteriaRevision,
+  objective: goal.objective,
+});
+
+const matchesPredicate = async (
+  ctx: ExtensionContext,
+  condition: Goal["conditions"][number],
+  item: Goal["evidence"][number],
+  fact: Static<typeof FactSchema> | undefined
+): Promise<boolean> => {
+  const { predicate } = condition;
+
+  if (!predicate || !fact) {
+    return false;
+  }
+
+  if (predicate.kind === "command") {
+    return (
+      item.kind === "command" &&
+      fact.kind === "command" &&
+      fact.tool === predicate.tool &&
+      fact.command === predicate.command &&
+      fact.exitCode === predicate.exitCode
+    );
+  }
+
+  const file = path.resolve(ctx.cwd, predicate.path);
+  const content = await readFile(file, "utf-8");
+
+  return (
+    ["file", "artifact"].includes(item.kind) &&
+    fact.path === file &&
+    item.path !== null &&
+    path.resolve(ctx.cwd, item.path) === file &&
+    content.includes(predicate.contains)
+  );
+};
+
+const checkAcceptance = async (
+  ctx: ExtensionContext,
+  goal: Goal,
+  evidence: Goal["evidence"],
+  records: Static<typeof FactSchema>[]
+): Promise<void> => {
+  if (
+    !goalAcceptanceSnapshot(ctx, goal).approved ||
+    goal.conditions.length === 0
+  ) {
+    throw new Error(
+      "The full objective and complete criteria mapping need one-time approval with /goal approve."
+    );
+  }
+
+  await Promise.all(
+    goal.conditions.map(async (condition) => {
+      const candidates = evidence.filter(
+        (item) => item.requirement === condition.id
+      );
+
+      const accepted = await Promise.all(
+        candidates.map((item) =>
+          condition.predicate
+            ? matchesPredicate(
+                ctx,
+                condition,
+                item,
+                records.find((fact) => fact.id === item.source)
+              )
+            : Promise.resolve(reviewed(ctx, goal, item))
+        )
+      );
+
+      if (!accepted.some(Boolean)) {
+        throw new Error(
+          `Requirement ${condition.id}${condition.predicate ? " needs fresh evidence matching its approved check." : " is a semantic claim. Stage evidence and use /goal review."}`
+        );
+      }
+    })
+  );
+};
+
 const validateEvidence = async (
   ctx: ExtensionContext,
   goal: Goal,
@@ -413,7 +554,9 @@ const validateEvidence = async (
     if (
       !requirements.has(item.requirement) ||
       item.revision !== goal.requirementRevision ||
-      !fact?.success ||
+      !fact ||
+      (!fact.success &&
+        !(item.kind === "command" && fact.exitCode !== undefined)) ||
       latest?.id !== fact.id ||
       fact.revision !== goal.requirementRevision ||
       fact.at !== item.observedAt ||
@@ -425,29 +568,12 @@ const validateEvidence = async (
     }
 
     validateClaim(ctx, fact, item);
-
-    if (
-      complete &&
-      ["judgment", "external", "confirmation"].includes(item.kind) &&
-      !reviewed(ctx, goal, item)
-    ) {
-      throw new Error(
-        "Observed tool facts do not prove acceptance. Stage evidence and use /goal review to approve these exact claims."
-      );
-    }
   }
 
   await Promise.all(evidence.map((item) => validateArtifact(ctx, item)));
 
-  if (
-    complete &&
-    [...requirements].some(
-      (id) => !evidence.some((item) => item.requirement === id)
-    )
-  ) {
-    throw new Error(
-      "Every requirement, including the full objective, needs current evidence."
-    );
+  if (complete) {
+    await checkAcceptance(ctx, goal, evidence, records);
   }
 };
 
@@ -567,6 +693,7 @@ const observedFact = async (
     producer,
     revision: goal.requirementRevision,
     success: !event.isError,
+    tool: event.toolName,
   };
 
   if (
@@ -618,7 +745,7 @@ const countBlockerCycles = (goal: Goal, progressed: boolean): number => {
 };
 
 const instruction = (goal: Goal): string =>
-  `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nAcceptance conditions (agent proposals, never a replacement for the objective):\n${JSON.stringify(goal.conditions)}\nNext action: ${JSON.stringify(goal.nextAction)}\nEvidence uses requirement ID objective for the full objective and stable condition IDs. Read get_goal for observed fact IDs, timestamps and excerpts. User acceptance review uses /goal review after staging evidence. A successful tool only verifies its observed facts, not the acceptance claim. Use requirementRevision for evidence revision.\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for user approval or an answer stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
+  `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nAcceptance conditions (agent proposals, never a replacement for the objective):\n${JSON.stringify(goal.conditions)}\nNext action: ${JSON.stringify(goal.nextAction)}\nPropose the complete mapping from the original objective to stable condition IDs and optional exact command or file predicates. The user approves this mapping once with /goal approve; edits invalidate approval. Matching fresh evidence then completes mechanical checks automatically. Conditions without predicates need semantic review. This is user-approved coverage, not a mechanical proof that the criteria capture the prose. Evidence uses condition IDs. Read get_goal for observed fact IDs, timestamps and excerpts. User acceptance review uses /goal review after staging evidence. A successful tool only verifies its observed facts, not the acceptance claim. Use requirementRevision for evidence revision.\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for user approval or an answer stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
 
 const goalResult = (
   goal: Goal | null,
@@ -633,7 +760,15 @@ const goalResult = (
 
 type GoalCommand =
   | { readonly kind: "create" | "edit"; readonly objective: string }
-  | { readonly kind: "status" | "pause" | "resume" | "clear" | "review" };
+  | {
+      readonly kind:
+        | "status"
+        | "pause"
+        | "resume"
+        | "clear"
+        | "review"
+        | "approve";
+    };
 
 const parseCommand = (args: string): GoalCommand => {
   const text = args;
@@ -658,7 +793,8 @@ const parseCommand = (args: string): GoalCommand => {
     word === "pause" ||
     word === "resume" ||
     word === "clear" ||
-    word === "review"
+    word === "review" ||
+    word === "approve"
   ) {
     if (rest) {
       throw new Error("Invalid /goal arguments.");
@@ -684,6 +820,11 @@ export const registerGoal = (
   let failure: string | undefined;
   let stopping: Promise<void> | undefined;
   let cycleProgress = 0;
+
+  const producingRevisions = new Map<
+    string,
+    { goalId: string; revision: number }
+  >();
 
   const workspaceState = async (
     ctx: ExtensionContext
@@ -760,7 +901,7 @@ export const registerGoal = (
     const workspace = await workspaceState(ctx);
     const current = readGoal(ctx);
 
-    if (current?.id !== goal.id) {
+    if (current?.id !== goal.id || current.revision !== goal.revision) {
       throw new Error(REJECTED_UPDATE);
     }
 
@@ -963,6 +1104,7 @@ export const registerGoal = (
           blocker: params.status === "active" ? params.reason : goal.blocker,
           ...blockerTracking(goal, params.reason, progressed),
           conditions,
+          criteriaRevision: goal.criteriaRevision + (changed ? 1 : 0),
           evidence: changed ? [] : params.evidence,
           nextAction: params.nextAction ?? goal.nextAction,
           noProgressCycles: progressed ? 0 : goal.noProgressCycles,
@@ -1055,6 +1197,44 @@ export const registerGoal = (
     }
   };
 
+  const approveCriteria = async (
+    ctx: ExtensionCommandContext,
+    goal: Goal
+  ): Promise<void> => {
+    if (!ctx.hasUI || goal.conditions.length === 0) {
+      throw new Error(
+        "Propose the complete acceptance criteria before asking for approval in an interactive session."
+      );
+    }
+
+    const approved = await ctx.ui.confirm(
+      "Approve criteria for automatic completion",
+      `Review whether these criteria cover the entire original objective. The bridge checks exact predicates, not whether they fully capture the prose. Criteria without predicates require semantic review. Changed criteria require approval again.\n\n${JSON.stringify({ conditions: goal.conditions, criteriaRevision: goal.criteriaRevision, goalId: goal.id, goalRevision: goal.revision, objective: goal.objective }, null, 2)}`
+    );
+
+    const current = readGoal(ctx);
+
+    if (
+      !approved ||
+      current?.id !== goal.id ||
+      current.revision !== goal.revision
+    ) {
+      throw new Error(
+        "Criteria approval was declined, dismissed, or became stale."
+      );
+    }
+
+    pi.appendEntry(CRITERIA_ENTRY, {
+      at: Date.now(),
+      conditions: goal.conditions,
+      criteriaRevision: goal.criteriaRevision,
+      goalId: goal.id,
+      goalRevision: goal.revision,
+      objective: goal.objective,
+    });
+    describe(ctx, current);
+  };
+
   const reviewGoal = async (
     ctx: ExtensionCommandContext,
     goal: Goal
@@ -1140,6 +1320,7 @@ export const registerGoal = (
         blocker: null,
         blockerCycles: 0,
         conditions: [],
+        criteriaRevision: 1,
         cycleBlocker: null,
         evidence: [],
         id: randomUUID(),
@@ -1166,13 +1347,17 @@ export const registerGoal = (
       throw new Error("No goal saved.");
     }
 
-    if (command.kind === "review") {
-      await reviewGoal(ctx, goal);
+    if (command.kind === "approve" || command.kind === "review") {
+      const action = { approve: approveCriteria, review: reviewGoal }[
+        command.kind
+      ];
+
+      await action(ctx, goal);
 
       return;
     }
 
-    if (command.kind === "pause" || command.kind === "clear") {
+    if (["pause", "clear"].includes(command.kind)) {
       await pauseGoal(ctx, goal, command.kind === "clear");
 
       return;
@@ -1189,6 +1374,7 @@ export const registerGoal = (
           blocker: null,
           blockerCycles: 0,
           conditions: [],
+          criteriaRevision: goal.criteriaRevision + 1,
           cycleBlocker: null,
           evidence: [],
           noProgressCycles: 0,
@@ -1254,6 +1440,7 @@ export const registerGoal = (
 
   const restore = (ctx: ExtensionContext): void => {
     ownedRun = undefined;
+    producingRevisions.clear();
     uiHolds.delete(ctx.sessionManager.getSessionId());
     failure = undefined;
 
@@ -1317,16 +1504,35 @@ export const registerGoal = (
       return { block: true, reason: "Goal launches are suspended." };
     }
 
-    if (["edit", "write", "bash", "powershell"].includes(event.toolName)) {
-      change(goal, {
-        evidence: [],
-        requirementRevision: goal.requirementRevision + 1,
-      });
-    }
+    const producing = ["edit", "write", "bash", "powershell"].includes(
+      event.toolName
+    )
+      ? change(goal, {
+          evidence: [],
+          requirementRevision: goal.requirementRevision + 1,
+        })
+      : goal;
+
+    producingRevisions.set(event.toolCallId, {
+      goalId: producing.id,
+      revision: producing.requirementRevision,
+    });
   });
 
   pi.on("tool_result", async (event, ctx) => {
-    const current = readGoal(ctx);
+    let current = readGoal(ctx);
+    const producing = producingRevisions.get(event.toolCallId);
+    producingRevisions.delete(event.toolCallId);
+
+    if (
+      current &&
+      producing?.goalId === current.id &&
+      producing.revision === current.requirementRevision &&
+      ["edit", "write", "bash", "powershell"].includes(event.toolName)
+    ) {
+      current = await refreshWorkspace(ctx, current);
+      producing.revision = current.requirementRevision;
+    }
 
     if (
       current &&
@@ -1334,6 +1540,10 @@ export const registerGoal = (
       !isT3Tool(event.toolName, "html_render")
     ) {
       const fact = await observedFact(ctx, current, event);
+
+      if (producing?.goalId === current.id) {
+        fact.revision = producing.revision;
+      }
 
       pi.appendEntry(FACT_ENTRY, fact);
     }
@@ -1345,6 +1555,9 @@ export const registerGoal = (
         pi.appendEntry(HOLD_ENTRY, { goalId: goal.id, waiting: true });
       }
     }
+  });
+  pi.on("tool_execution_end", (event) => {
+    producingRevisions.delete(event.toolCallId);
   });
   pi.on("before_agent_start", (_event, ctx) => {
     const goal = readGoal(ctx);
