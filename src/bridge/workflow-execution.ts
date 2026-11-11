@@ -41,7 +41,7 @@ export const attachWorkflowTask = (
 
   if (
     attempt?.cancellationPending &&
-    task.status === "cancelled" &&
+    (task.status === "cancelled" || task.status === "interrupted") &&
     task.workState === "result_available" &&
     task.hasPendingChildRuns === false &&
     !task.hasPendingQuestion &&
@@ -62,7 +62,7 @@ export const attachWorkflowTask = (
         {
           ...task,
           hasPendingChildRuns: false,
-          status: "cancelled",
+          status: task.status,
           workState: "result_available",
         }
       )
