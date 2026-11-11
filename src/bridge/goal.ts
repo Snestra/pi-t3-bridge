@@ -209,6 +209,7 @@ const OutputSchema = obj({
   goal: nullable(GoalSchema),
   observed: arr(FactSchema),
 });
+
 const GetSchema = obj({});
 const getInput = compile(GetSchema);
 
@@ -909,6 +910,10 @@ export const registerGoal = (
     ctx: ExtensionContext,
     goal: Goal
   ): Promise<Goal> => {
+    if (goal.status === "complete") {
+      return goal;
+    }
+
     const workspace = await workspaceState(ctx);
     const current = readGoal(ctx);
 
@@ -1311,6 +1316,16 @@ export const registerGoal = (
     describe(ctx, fresh);
   };
 
+  const reviewActions: Partial<
+    Record<
+      GoalCommand["kind"],
+      (ctx: ExtensionCommandContext, goal: Goal) => Promise<void>
+    >
+  > = {
+    approve: approveCriteria,
+    review: reviewGoal,
+  };
+
   const applyCommand = async (
     command: GoalCommand,
     ctx: ExtensionCommandContext
@@ -1365,12 +1380,16 @@ export const registerGoal = (
       throw new Error("No goal saved.");
     }
 
-    if (command.kind === "approve" || command.kind === "review") {
-      const action = { approve: approveCriteria, review: reviewGoal }[
-        command.kind
-      ];
+    if (goal.status === "complete" && command.kind !== "clear") {
+      describe(ctx, goal);
 
-      await action(ctx, goal);
+      return;
+    }
+
+    const reviewAction = reviewActions[command.kind];
+
+    if (reviewAction) {
+      await reviewAction(ctx, goal);
 
       return;
     }
@@ -1379,10 +1398,6 @@ export const registerGoal = (
       await pauseGoal(ctx, goal, command.kind === "clear");
 
       return;
-    }
-
-    if (goal.status === "complete") {
-      throw new Error("A completed goal cannot be edited or resumed.");
     }
 
     if (command.kind === "edit") {
@@ -1564,7 +1579,7 @@ export const registerGoal = (
   pi.on("tool_call", (event, ctx) => {
     const goal = readGoal(ctx);
 
-    if (!goal) {
+    if (!goal || goal.status === "complete") {
       return;
     }
 
@@ -1592,6 +1607,11 @@ export const registerGoal = (
 
   pi.on("tool_result", async (event, ctx) => {
     let current = readGoal(ctx);
+
+    if (current?.status === "complete") {
+      return;
+    }
+
     const producing = producingRevisions.get(event.toolCallId);
     producingRevisions.delete(event.toolCallId);
 
