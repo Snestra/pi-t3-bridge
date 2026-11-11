@@ -2,7 +2,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import { arr, bool, obj, oneOf, opt, str } from "@earendil-works/pi-schema";
 import type { Static } from "@earendil-works/pi-schema";
 
-import { renderInlineCard, taskCard } from "./cards.ts";
+import { renderInlineCard, taskCard, workflowCard } from "./cards.ts";
 import { readWorkflow } from "./workflow-store.ts";
 import type { Workflow } from "./workflow.ts";
 
@@ -142,7 +142,9 @@ export const tasksTool = defineTool({
 
     const rendered = await renderInlineCard(
       ctx,
-      taskCard({ ...snapshot, progress: progress(snapshot) })
+      workflow
+        ? workflowCard(workflow)
+        : taskCard({ ...snapshot, progress: progress(snapshot) })
     );
 
     const details: TaskToolDetails = { rendered, snapshot };
