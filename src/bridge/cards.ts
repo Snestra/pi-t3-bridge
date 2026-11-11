@@ -3,6 +3,7 @@ import { Marked } from "marked";
 import { render } from "pele";
 
 import { findT3Tool } from "./t3-tasks.ts";
+import type { GoalExecutionState } from "./t3-tasks.ts";
 
 const MIN_FRAME_HEIGHT = 80;
 const MAX_FRAME_HEIGHT = 2000;
@@ -185,6 +186,62 @@ export const taskCard = (list: {
       `<main class="card"><div class="head"><h1>Tasks</h1><span class="muted">${escapeHtml(list.progress)}</span></div>${note}<ol>${items}</ol></main>`
     ),
     title: "Tasks",
+  };
+};
+
+export const goalCard = (goal: {
+  readonly objective: string;
+  readonly status: string;
+  readonly revision: number;
+  readonly reason: string | null;
+  readonly nextAction: {
+    readonly tool: string;
+    readonly instruction: string;
+  } | null;
+  readonly noProgressCycles: number;
+  readonly conditions: readonly {
+    readonly id: string;
+    readonly text: string;
+  }[];
+  readonly execution: GoalExecutionState;
+  readonly evidence: readonly {
+    readonly requirement: string;
+    readonly kind: string;
+    readonly source: string;
+    readonly result: string;
+    readonly observedAt: number;
+    readonly revision: number;
+  }[];
+}): InlineCard => {
+  const rows = [
+    `Status: ${goal.status}. Revision ${goal.revision}. No-progress cycles ${goal.noProgressCycles}.`,
+    `Full user objective\n${goal.objective}`,
+    "Agent-proposed acceptance conditions (additional to the objective)",
+    ...goal.conditions.map((condition) => `${condition.id}: ${condition.text}`),
+    ...goal.evidence.map(
+      (item) =>
+        `${item.requirement} [${item.kind}] ${item.source}, revision ${item.revision}, ${new Date(item.observedAt).toISOString()}\n${item.result}`
+    ),
+    ...goal.execution.children.map(
+      (child) =>
+        `Child ${child.taskId ?? child.requestId}: ${child.cancellationPending ? "cancellation pending" : child.disposition}${child.task?.link ? ` ${child.task.link}` : ""}`
+    ),
+    goal.execution.reconciliationRequired
+      ? "Child state needs reconciliation."
+      : "",
+    `Next action: ${goal.nextAction ? `${goal.nextAction.tool}: ${goal.nextAction.instruction}` : "None"}`,
+    goal.reason ?? "",
+  ];
+
+  const text = rows.join("\n\n");
+
+  return {
+    height: frameHeight(80 + wrappedLines(text, 38) * LINE_PX),
+    html: pageHtml(
+      "Goal",
+      `<main class="card"><div class="head"><h1>Goal</h1></div><pre>${escapeHtml(text)}</pre></main>`
+    ),
+    title: "Goal",
   };
 };
 
