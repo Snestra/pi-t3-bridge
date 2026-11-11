@@ -1,8 +1,16 @@
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
+import { compile, obj, str } from "@earendil-works/pi-schema";
 import { Marked } from "marked";
 import { render } from "pele";
 
+import type { GoalAcceptanceSnapshot } from "./goal.ts";
 import { findT3Tool } from "./t3-tasks.ts";
+import type { GoalExecutionState } from "./t3-tasks.ts";
+import { workflowAccepted } from "./workflow.ts";
+import type { Workflow } from "./workflow.ts";
 
 const MIN_FRAME_HEIGHT = 80;
 const MAX_FRAME_HEIGHT = 2000;
@@ -35,6 +43,7 @@ pre{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--font-
 .diagram{margin:0 0 10px;display:flex;justify-content:center}
 .pele{--pele-bg:var(--card);--pele-fg:var(--foreground);--pele-muted:var(--muted-foreground);--pele-line:var(--muted-foreground);--pele-surface:var(--secondary);--pele-surface-alt:var(--accent);--pele-border:color-mix(in srgb,var(--foreground) 28%,transparent);--pele-accent:var(--primary);--pele-font:var(--font-sans)}
 .diagram-error p{color:var(--destructive);margin:0 0 6px}
+*{box-sizing:border-box}.head{flex-wrap:wrap}.snapshot p{white-space:pre-wrap;overflow-wrap:anywhere}.snapshot details{border-top:1px solid var(--border);margin-top:12px;padding-top:8px}.snapshot summary{cursor:pointer;padding:8px 0;overflow-wrap:anywhere}.snapshot summary:focus-visible,.snapshot a:focus-visible{outline:2px solid var(--ring);outline-offset:3px}.snapshot h2{font-size:inherit;margin:16px 0 8px}.snapshot code{font-family:var(--font-mono);overflow-wrap:anywhere}.snapshot a{color:var(--primary)}.snapshot ul{padding-inline-start:20px}.snapshot li{margin:8px 0;overflow-wrap:anywhere}.snapshot .metadata{font-size:0.8rem;color:var(--muted-foreground)}.snapshot .attention{border-inline-start:3px solid var(--warning);padding-inline-start:12px}.snapshot pre{margin:8px 0}.snapshot .md p{white-space:normal}
 `;
 
 // Height estimates follow STYLE: 21 px per line of text at 0.875rem and 1.5
@@ -51,7 +60,7 @@ const wrappedLines = (text: string, charsPerLine: number): number =>
     );
 
 const DIAGRAM_MARGIN = 10;
-const WEB_LINK = /^https?:\/\//iu;
+const WEB_LINK = /^(?:https?:\/\/|t3-thread:\/\/v2\/)/iu;
 
 interface MarkdownResult {
   readonly diagramHeight: number;
@@ -188,6 +197,109 @@ export const taskCard = (list: {
   };
 };
 
+export const goalCard = (goal: {
+  readonly acceptance?: GoalAcceptanceSnapshot;
+  readonly objective: string;
+  readonly status: string;
+  readonly revision: number;
+  readonly reason: string | null;
+  readonly nextAction: {
+    readonly tool: string;
+    readonly instruction: string;
+  } | null;
+  readonly noProgressCycles: number;
+  readonly conditions: readonly {
+    readonly id: string;
+    readonly text: string;
+  }[];
+  readonly execution: GoalExecutionState;
+  readonly evidence: readonly {
+    readonly requirement: string;
+    readonly kind: string;
+    readonly source: string;
+    readonly result: string;
+    readonly observedAt: number;
+    readonly revision: number;
+  }[];
+}): InlineCard => {
+  const rows = [
+    `Status: ${goal.status}. Revision ${goal.revision}. No-progress cycles ${goal.noProgressCycles}.`,
+    `Full user objective\n${goal.objective}`,
+    "Agent-proposed acceptance conditions (additional to the objective)",
+    ...goal.conditions.map((condition) => `${condition.id}: ${condition.text}`),
+    ...goal.evidence.map(
+      (item) =>
+        `${item.requirement} [${item.kind}] ${item.source}, revision ${item.revision}, ${new Date(item.observedAt).toISOString()}\n${item.result}`
+    ),
+    ...goal.execution.children.map(
+      (child) =>
+        `Child ${child.taskId ?? child.requestId}: ${child.cancellationPending ? "cancellation pending" : child.disposition}${child.task?.link ? ` ${child.task.link}` : ""}`
+    ),
+    goal.execution.reconciliationRequired
+      ? "Child state needs reconciliation."
+      : "",
+    `Next action: ${goal.nextAction ? `${goal.nextAction.tool}: ${goal.nextAction.instruction}` : "None"}`,
+    goal.reason ?? "",
+  ];
+
+  const text = rows.join("\n\n");
+
+  return {
+    height: frameHeight(80 + wrappedLines(text, 38) * LINE_PX),
+    html: pageHtml(
+      "Goal",
+      `<main class="card snapshot"><div class="head"><h1>Goal</h1><span>${escapeHtml(goal.status)}</span></div>
+      <p class="metadata">Snapshot · Revision ${goal.revision} · No-progress cycles ${goal.noProgressCycles}</p>
+      <p>${escapeHtml(goal.objective)}</p>
+      ${goal.reason ? `<p class="attention">${escapeHtml(goal.reason)}</p>` : ""}
+      <p>Next action: ${escapeHtml(goal.nextAction ? `${goal.nextAction.tool}: ${goal.nextAction.instruction}` : "None")}</p>
+      <details><summary>Acceptance conditions (${goal.conditions.length})</summary>
+      <p>${goal.acceptance ? `Criteria revision ${goal.acceptance.criteriaRevision}. ${goal.acceptance.approved ? "Mapping approved by user." : "Mapping needs approval."}` : "Mapping approval not supplied."}</p>
+      <p class="metadata">Approval covers the mapping from the original objective to these conditions. Evidence must still satisfy each condition.</p>
+      <ul>${goal.conditions.map((condition) => `<li><code>${escapeHtml(condition.id)}</code><p>${escapeHtml(condition.text)}</p></li>`).join("")}</ul>
+      ${goal.acceptance ? `<pre>${escapeHtml(JSON.stringify(goal.acceptance.conditions, null, 2))}</pre>` : ""}</details>
+      <details><summary>Linked evidence (${goal.evidence.length})</summary>
+      <p class="metadata">These are recorded evidence entries, not a claim that every condition has passed.</p>
+      ${goal.evidence.map((item) => `<details><summary>${escapeHtml(item.requirement)} · ${escapeHtml(item.kind)}</summary><p class="metadata">Revision ${item.revision} · ${escapeHtml(new Date(item.observedAt).toISOString())}</p><p>${escapeHtml(item.source)}</p><pre>${escapeHtml(item.result)}</pre></details>`).join("")}</details>
+      <details${goal.execution.pending || goal.execution.reconciliationRequired ? " open" : ""}><summary>Children (${goal.execution.children.length})</summary>
+      ${goal.execution.reconciliationRequired ? '<p class="attention">Child state needs reconciliation.</p>' : ""}
+      ${goal.execution.children.map((child) => `<details><summary>${escapeHtml(child.stepId)} · ${child.cancellationPending ? "Cancellation pending" : escapeHtml(child.disposition)}</summary><p class="metadata">Workflow ${escapeHtml(child.workflowId)} · ${escapeHtml(child.taskId ?? child.requestId)}</p><p>${escapeHtml([child.task?.providerInstanceId, child.task?.model, child.task?.workState].filter(Boolean).join(" · "))}</p>${child.needsStatus ? "<p>Completion wake needs reconciliation.</p>" : ""}<div class="md">${markdownHtml(child.task?.link ?? "").html}</div>${child.task?.summary ? `<pre>${escapeHtml(child.task.summary)}</pre>` : ""}</details>`).join("")}</details>
+      </main>`
+    ),
+    title: "Goal",
+  };
+};
+
+export const workflowCard = (workflow: Workflow): InlineCard => {
+  const steps = workflow.steps
+    .map((step) => {
+      const attempt = step.attempts.at(-1);
+      const result = attempt?.result;
+
+      return `<details><summary>${escapeHtml(step.purpose)} · ${escapeHtml(step.state)}</summary>
+      <p class="metadata">Step ${escapeHtml(step.id)} · ${escapeHtml(step.executor.kind)} · ${escapeHtml(step.executor.isolation)}</p>
+      <p>Dependencies: ${escapeHtml(step.dependencies.join(", ") || "None")}</p>
+      ${step.blocked ? `<p class="attention">Blocked by ${escapeHtml(step.blocked.kind)}: ${escapeHtml(step.blocked.id)}</p>` : ""}
+      <p>Acceptance conditions: ${escapeHtml(step.acceptance.join(", "))}</p>
+      <p>Attempts: ${step.attempts.length}${attempt ? ` · ${escapeHtml(attempt.launch)}` : ""}</p>
+      ${attempt?.cancellationPending ? '<p class="attention">Cancellation pending</p>' : ""}
+      <div class="md">${markdownHtml(attempt?.task?.link ?? result?.childLink ?? "").html}</div>
+      ${result ? `<pre>${escapeHtml(result.summary)}</pre><p>Integration: ${escapeHtml(result.integration)}</p><details><summary>Evidence and artifacts</summary><pre>${escapeHtml(JSON.stringify({ artifacts: result.artifacts, checkout: result.checkout, evidence: result.evidence, integrationEvidence: result.integrationEvidence }, null, 2))}</pre></details>` : ""}
+      <details><summary>Attempt history</summary><pre>${escapeHtml(JSON.stringify(step.attempts, null, 2))}</pre></details>
+      </details>`;
+    })
+    .join("");
+
+  return {
+    height: frameHeight(180 + workflow.steps.length * 60),
+    html: pageHtml(
+      "Workflow",
+      `<main class="card snapshot"><div class="head"><h1>Workflow</h1><span>${workflowAccepted(workflow) ? "Accepted" : "Acceptance pending"}</span></div><p class="metadata">Snapshot · ${escapeHtml(workflow.id)} · Revision ${workflow.revision}</p>${steps}</main>`
+    ),
+    title: "Workflow",
+  };
+};
+
 export const renderInlineCard = async (
   ctx: ExtensionToolContext,
   card: InlineCard
@@ -198,7 +310,79 @@ export const renderInlineCard = async (
     return false;
   }
 
-  const outcome = await ctx.executeTool(tool, card);
+  try {
+    const outcome = await ctx.executeTool(tool, card);
 
-  return !outcome.isError;
+    return !outcome.isError;
+  } catch {
+    ctx.signal?.throwIfAborted();
+
+    return false;
+  }
+};
+
+const CARD_SNAPSHOT = "pi-t3-card-snapshot";
+const cardReceipt = compile(obj({ html: str(), key: str() }));
+
+// Receipts describe presentation only. Domain state stays in goals and workflows.
+export const createSnapshotRenderer = (pi: ExtensionAPI) => {
+  let pending = Promise.resolve(false);
+
+  return (
+    ctx: ExtensionToolContext,
+    card: InlineCard,
+    key = card.title
+  ): Promise<boolean> => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const anchor = ctx.sessionManager.getLeafId();
+
+    const belongs = (): boolean =>
+      ctx.sessionManager.getSessionId() === sessionId &&
+      (anchor === null ||
+        ctx.sessionManager.getBranch().some((entry) => entry.id === anchor));
+
+    const predecessor = pending;
+
+    const publish = async (): Promise<boolean> => {
+      try {
+        await predecessor;
+      } catch {
+        // A cancelled render must not prevent the next snapshot.
+      }
+
+      if (!belongs() || ctx.signal?.aborted) {
+        return false;
+      }
+
+      const previous = ctx.sessionManager
+        .getBranch()
+        .findLast(
+          (entry) =>
+            entry.type === "custom" &&
+            entry.customType === CARD_SNAPSHOT &&
+            cardReceipt.check(entry.data) &&
+            entry.data.key === key
+        );
+
+      if (
+        previous?.type === "custom" &&
+        cardReceipt.check(previous.data) &&
+        previous.data.html === card.html
+      ) {
+        return true;
+      }
+
+      const rendered = await renderInlineCard(ctx, card);
+
+      if (rendered && belongs() && !ctx.signal?.aborted) {
+        pi.appendEntry(CARD_SNAPSHOT, { html: card.html, key });
+      }
+
+      return rendered;
+    };
+
+    pending = publish();
+
+    return pending;
+  };
 };
