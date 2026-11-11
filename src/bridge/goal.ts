@@ -25,7 +25,7 @@ import {
 import type { Static } from "@earendil-works/pi-schema";
 
 import { askStopped } from "./ask.ts";
-import { goalCard, renderInlineCard } from "./cards.ts";
+import { createSnapshotRenderer, goalCard } from "./cards.ts";
 import { registerUnlessTaken } from "./claim.ts";
 import { planBlocked } from "./plan.ts";
 import { isResumePrompt, recoveryPending } from "./resume.ts";
@@ -816,6 +816,8 @@ export const registerGoal = (
   pi: ExtensionAPI,
   execution: GoalExecution
 ): GoalRuntime => {
+  const renderSnapshot = createSnapshotRenderer(pi);
+
   let ownedRun: GoalIdentity | undefined;
   let failure: string | undefined;
   let stopping: Promise<void> | undefined;
@@ -1031,13 +1033,14 @@ export const registerGoal = (
         const goal = saved ? await refreshWorkspace(ctx, saved) : null;
 
         if (goal) {
-          await renderInlineCard(
+          await renderSnapshot(
             ctx,
             goalCard({
               ...goal,
               acceptance: goalAcceptanceSnapshot(ctx, goal),
               execution: execution.inspectGoal(ctx, identityOf(goal)),
-            })
+            }),
+            goal.id
           );
         }
 
@@ -1124,13 +1127,14 @@ export const registerGoal = (
           status: params.status,
         });
 
-        await renderInlineCard(
+        await renderSnapshot(
           ctx,
           goalCard({
             ...next,
             acceptance: goalAcceptanceSnapshot(ctx, next),
             execution: execution.inspectGoal(ctx, identityOf(next)),
-          })
+          }),
+          next.id
         );
 
         return goalResult(next);
