@@ -1449,7 +1449,60 @@ export const registerGoal = (
       "Save, inspect, edit, pause, resume, or clear this session’s goal.",
     handler: async (args, ctx) => {
       try {
-        await applyCommand(parseCommand(args), ctx);
+        if (args.trim() || !ctx.hasUI) {
+          await applyCommand(parseCommand(args), ctx);
+
+          return;
+        }
+
+        const goal = readGoal(ctx);
+        describe(ctx, goal);
+
+        if (goal === null) {
+          return;
+        }
+
+        const choices =
+          goal.status === "complete"
+            ? ["clear"]
+            : [
+                "approve",
+                "review",
+                "edit",
+                goal.status === "active" ? "pause" : "resume",
+                "clear",
+              ];
+
+        const choice = await ctx.ui.select(
+          `${goal.objective}\n${goal.status} · Revision ${goal.revision}`,
+          choices
+        );
+
+        if (choice === undefined || !choices.includes(choice)) {
+          return;
+        }
+
+        const objective =
+          choice === "edit"
+            ? await ctx.ui.editor("Goal", goal.objective)
+            : undefined;
+
+        if (choice === "edit" && !objective?.trim()) {
+          return;
+        }
+
+        const current = readGoal(ctx);
+
+        if (current?.id !== goal.id || current.revision !== goal.revision) {
+          throw new Error(
+            "Goal changed while the dialog was open. Use /goal again."
+          );
+        }
+
+        await applyCommand(
+          parseCommand(choice === "edit" ? `edit ${objective}` : choice),
+          ctx
+        );
       } catch (error) {
         show(ctx, error instanceof Error ? error.message : String(error));
       }
