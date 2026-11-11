@@ -109,55 +109,58 @@ const TaskToolDetailsSchema = obj(
 
 type TaskToolDetails = Static<typeof TaskToolDetailsSchema>;
 
-export const tasksTool = defineTool({
-  annotations: { readOnlyHint: true },
-  description:
-    "Publish the current task list for this run. Send the complete list every time, with stable step ids and at most one step in_progress. T3 shows the list as a task card in the chat.",
-  execute: async (
-    _toolCallId,
-    params: Static<typeof TaskInputSchema>,
-    _signal,
-    _onUpdate,
-    ctx
-  ) => {
-    const workflow = params.workflowId
-      ? readWorkflow(ctx, params.workflowId)
-      : undefined;
+export const createTasksTool = (render = renderInlineCard) =>
+  defineTool({
+    annotations: { readOnlyHint: true },
+    description:
+      "Publish the current task list for this run. Send the complete list every time, with stable step ids and at most one step in_progress. T3 shows the list as a task card in the chat.",
+    execute: async (
+      _toolCallId,
+      params: Static<typeof TaskInputSchema>,
+      _signal,
+      _onUpdate,
+      ctx
+    ) => {
+      const workflow = params.workflowId
+        ? readWorkflow(ctx, params.workflowId)
+        : undefined;
 
-    if (params.workflowId && !workflow) {
-      throw new Error("Unknown workflow");
-    }
+      if (params.workflowId && !workflow) {
+        throw new Error("Unknown workflow");
+      }
 
-    if (!workflow && !params.steps) {
-      throw new Error("Steps are required");
-    }
+      if (!workflow && !params.steps) {
+        throw new Error("Steps are required");
+      }
 
-    const snapshot: TaskSnapshot = workflow
-      ? projectWorkflow(workflow)
-      : { explanation: params.explanation, steps: params.steps ?? [] };
+      const snapshot: TaskSnapshot = workflow
+        ? projectWorkflow(workflow)
+        : { explanation: params.explanation, steps: params.steps ?? [] };
 
-    if (!workflow) {
-      checkSnapshot(snapshot);
-    }
+      if (!workflow) {
+        checkSnapshot(snapshot);
+      }
 
-    const rendered = await renderInlineCard(
-      ctx,
-      workflow
-        ? workflowCard(workflow)
-        : taskCard({ ...snapshot, progress: progress(snapshot) })
-    );
+      const rendered = await render(
+        ctx,
+        workflow
+          ? workflowCard(workflow)
+          : taskCard({ ...snapshot, progress: progress(snapshot) })
+      );
 
-    const details: TaskToolDetails = { rendered, snapshot };
+      const details: TaskToolDetails = { rendered, snapshot };
 
-    return {
-      content: [{ text: taskSummary(snapshot), type: "text" }],
-      details,
-      structuredContent: details,
-    };
-  },
-  label: "Tasks",
-  name: "tasks",
-  outputSchema: TaskToolDetailsSchema,
-  parameters: TaskInputSchema,
-  promptSnippet: "Publish the current task list as a card in the chat.",
-});
+      return {
+        content: [{ text: taskSummary(snapshot), type: "text" }],
+        details,
+        structuredContent: details,
+      };
+    },
+    label: "Tasks",
+    name: "tasks",
+    outputSchema: TaskToolDetailsSchema,
+    parameters: TaskInputSchema,
+    promptSnippet: "Publish the current task list as a card in the chat.",
+  });
+
+export const tasksTool = createTasksTool();

@@ -3,6 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAccounts } from "./src/bridge/accounts.ts";
 import { registerAsk } from "./src/bridge/ask.ts";
 import { registerBashTimeout } from "./src/bridge/bash-timeout.ts";
+import { createSnapshotRenderer } from "./src/bridge/cards.ts";
 import { registerUnlessTaken } from "./src/bridge/claim.ts";
 import { registerConfig } from "./src/bridge/config.ts";
 import {
@@ -18,7 +19,7 @@ import { moveOldState } from "./src/bridge/state.ts";
 import { createT3Execution } from "./src/bridge/t3-execution.ts";
 import { registerT3Mcp } from "./src/bridge/t3-mcp.ts";
 import { registerTaskOutcomes } from "./src/bridge/t3-tasks.ts";
-import { tasksTool } from "./src/bridge/tasks.ts";
+import { createTasksTool } from "./src/bridge/tasks.ts";
 import { registerTranscript } from "./src/bridge/transcript.ts";
 import { registerUsage } from "./src/bridge/usage.ts";
 import { createWorkflowStore } from "./src/bridge/workflow-store.ts";
@@ -30,7 +31,7 @@ const piT3Bridge = (pi: ExtensionAPI): void => {
   moveOldState();
   registerConfig(pi);
   registerTranscript(pi);
-  registerUnlessTaken(pi, tasksTool);
+  registerUnlessTaken(pi, createTasksTool(createSnapshotRenderer(pi)));
   registerTaskOutcomes(pi);
   const workflowStore = createWorkflowStore(pi);
 

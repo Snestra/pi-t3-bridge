@@ -1,4 +1,8 @@
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionToolContext,
+} from "@earendil-works/pi-coding-agent";
+import { compile, obj, str } from "@earendil-works/pi-schema";
 import { Marked } from "marked";
 import { render } from "pele";
 
@@ -306,7 +310,79 @@ export const renderInlineCard = async (
     return false;
   }
 
-  const outcome = await ctx.executeTool(tool, card);
+  try {
+    const outcome = await ctx.executeTool(tool, card);
 
-  return !outcome.isError;
+    return !outcome.isError;
+  } catch {
+    ctx.signal?.throwIfAborted();
+
+    return false;
+  }
+};
+
+const CARD_SNAPSHOT = "pi-t3-card-snapshot";
+const cardReceipt = compile(obj({ html: str(), key: str() }));
+
+// Receipts describe presentation only. Domain state stays in goals and workflows.
+export const createSnapshotRenderer = (pi: ExtensionAPI) => {
+  let pending = Promise.resolve(false);
+
+  return (
+    ctx: ExtensionToolContext,
+    card: InlineCard,
+    key = card.title
+  ): Promise<boolean> => {
+    const sessionId = ctx.sessionManager.getSessionId();
+    const anchor = ctx.sessionManager.getLeafId();
+
+    const belongs = (): boolean =>
+      ctx.sessionManager.getSessionId() === sessionId &&
+      (anchor === null ||
+        ctx.sessionManager.getBranch().some((entry) => entry.id === anchor));
+
+    const predecessor = pending;
+
+    const publish = async (): Promise<boolean> => {
+      try {
+        await predecessor;
+      } catch {
+        // A cancelled render must not prevent the next snapshot.
+      }
+
+      if (!belongs() || ctx.signal?.aborted) {
+        return false;
+      }
+
+      const previous = ctx.sessionManager
+        .getBranch()
+        .findLast(
+          (entry) =>
+            entry.type === "custom" &&
+            entry.customType === CARD_SNAPSHOT &&
+            cardReceipt.check(entry.data) &&
+            entry.data.key === key
+        );
+
+      if (
+        previous?.type === "custom" &&
+        cardReceipt.check(previous.data) &&
+        previous.data.html === card.html
+      ) {
+        return true;
+      }
+
+      const rendered = await renderInlineCard(ctx, card);
+
+      if (rendered && belongs() && !ctx.signal?.aborted) {
+        pi.appendEntry(CARD_SNAPSHOT, { html: card.html, key });
+      }
+
+      return rendered;
+    };
+
+    pending = publish();
+
+    return pending;
+  };
 };
