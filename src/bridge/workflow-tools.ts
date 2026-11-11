@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import {
   arr,
   bool,
@@ -16,16 +19,23 @@ import {
 } from "@earendil-works/pi-schema";
 
 import { registerUnlessTaken } from "./claim.ts";
-import { t3Json } from "./t3-json.ts";
-import { findT3Tool } from "./t3-tasks.ts";
-import { createWorkflowStore } from "./workflow-store.ts";
-import type { Workflow, WorkflowDefinition } from "./workflow.ts";
+import { findT3Tool, taskOutcome, validateTaskTarget } from "./t3-tasks.ts";
+import { observeWorkflowChild } from "./workflow-execution.ts";
+import { workflowTargetSchema } from "./workflow-schema.ts";
+import type { createWorkflowStore } from "./workflow-store.ts";
+import type {
+  Workflow,
+  WorkflowDefinition,
+  WorkflowTarget,
+  WorkflowTask,
+} from "./workflow.ts";
 import {
   cancelWorkflowStep,
   finishWorkflowStep,
   integrateWorkflowStep,
   launchWorkflowStep,
   recordWorkflowLaunch,
+  recordWorkflowTask,
   reconcileWorkflowLaunch,
   retryWorkflowStep,
   resumeWorkflowStep,
@@ -63,8 +73,10 @@ interface ChildStatus {
   status: string;
   workState: string;
   hasPendingChildRuns: boolean;
+  hasPendingQuestion?: boolean;
+  pendingApproval?: unknown;
   summary?: string | null;
-  link?: string | null;
+  link?: string;
   checkout?: string | null;
 }
 
@@ -88,14 +100,14 @@ const stepSchema = obj({
   purpose: id,
 });
 
-const child = compile(obj({ taskId: id }, { open: true }));
-
 const status = compile(
   obj(
     {
       checkout: opt(nullable(str())),
       hasPendingChildRuns: bool(),
+      hasPendingQuestion: opt(bool()),
       link: opt(nullable(str())),
+      pendingApproval: opt(unknown()),
       status: str(),
       summary: opt(nullable(str())),
       taskId: id,
@@ -105,8 +117,18 @@ const status = compile(
   )
 );
 
-export const registerWorkflowTools = (pi: ExtensionAPI): void => {
-  const store = createWorkflowStore(pi);
+const completeChild = (task: WorkflowTask | undefined): task is ChildStatus =>
+  status.check(task) &&
+  task.workState === "result_available" &&
+  !task.hasPendingChildRuns &&
+  !task.hasPendingQuestion &&
+  !task.pendingApproval;
+
+export const registerWorkflowTools = (
+  pi: ExtensionAPI,
+  store: ReturnType<typeof createWorkflowStore>,
+  authorize: (ctx: ExtensionContext, workflow: Workflow) => void
+): void => {
   pi.on("session_start", async (_event, ctx) => {
     await Promise.all(
       store.list(ctx).map(async (workflow) => {
@@ -175,7 +197,7 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
       description: "Launch a delegated workflow step.",
       execute: async (
         _call,
-        params: Ref & { task: string; target?: unknown },
+        params: Ref & { task: string; target?: WorkflowTarget },
         _signal,
         _update,
         ctx
@@ -190,6 +212,22 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
         ) {
           throw new Error("A delegated shared or worktree step is required");
         }
+
+        if (!current) {
+          throw new Error("Unknown workflow");
+        }
+
+        store.assertOwner(ctx, current);
+        authorize(ctx, current);
+        await validateTaskTarget(ctx, params.target);
+        const checked = store.read(ctx, params.workflowId);
+
+        if (!checked || checked.revision !== params.revision) {
+          throw new Error("Workflow revision conflict");
+        }
+
+        store.assertOwner(ctx, checked);
+        authorize(ctx, checked);
 
         const name = findT3Tool(ctx.tools, "delegate_task");
 
@@ -207,6 +245,15 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
             params.stepId,
             requestId,
             async () => {
+              const latest = store.read(ctx, params.workflowId);
+
+              if (!latest) {
+                throw new Error("Unknown workflow");
+              }
+
+              store.assertOwner(ctx, latest);
+              authorize(ctx, latest);
+
               const response = await ctx.executeTool(name, {
                 clientRequestId: requestId,
                 isolation: step.executor.isolation,
@@ -215,16 +262,15 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
                 task: params.task,
               });
 
-              return response.isError
-                ? undefined
-                : t3Json(child, response.result);
-            }
+              return taskOutcome(name, response.result, response.isError);
+            },
+            { isolation: step.executor.isolation, target: params.target }
           )
         );
       },
       label: "Launch workflow step",
       name: "launch_workflow_step",
-      parameters: obj({ ...ref, target: opt(unknown()), task: id }),
+      parameters: obj({ ...ref, target: opt(workflowTargetSchema), task: id }),
     })
   );
   registerUnlessTaken(
@@ -268,37 +314,59 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
           throw new Error("Launch remains held for user review");
         }
 
-        if (p.resolution === "started") {
-          if (!p.taskId) {
-            throw new Error("taskId required");
-          }
-
-          const name = findT3Tool(ctx.tools, "task_status");
-
-          if (!name) {
-            throw new Error("T3 task_status unavailable");
-          }
-
-          const response = await ctx.executeTool(name, { taskId: p.taskId });
-
-          if (
-            response.isError ||
-            t3Json(child, response.result)?.taskId !== p.taskId
-          ) {
-            throw new Error("Task not confirmed by T3");
-          }
-        }
-
         return result(
-          await store.transition(ctx, p.workflowId, p.revision, (w) =>
-            reconcileWorkflowLaunch(
-              w,
-              { owner: w.owner, revision: w.revision },
-              p.stepId,
-              p.resolution === "started"
-                ? { childTaskId: p.taskId, kind: "started" }
-                : { kind: "not_started" }
-            )
+          await store.effect(
+            ctx,
+            p.workflowId,
+            p.revision,
+            async (w, commit) => {
+              if (p.resolution === "not_started") {
+                return commit(
+                  reconcileWorkflowLaunch(
+                    w,
+                    { owner: w.owner, revision: w.revision },
+                    p.stepId,
+                    { kind: "not_started" }
+                  )
+                );
+              }
+
+              const name = findT3Tool(ctx.tools, "task_status");
+
+              if (!name || !p.taskId) {
+                throw new Error("Saved child and T3 task_status required");
+              }
+
+              store.assertOwner(ctx, w);
+
+              const response = await ctx.executeTool(name, {
+                taskId: p.taskId,
+              });
+
+              const task = taskOutcome(name, response.result, response.isError);
+
+              if (!task || task.taskId !== p.taskId) {
+                throw new Error("Task not confirmed by T3");
+              }
+
+              const resolved = commit(
+                reconcileWorkflowLaunch(
+                  w,
+                  { owner: w.owner, revision: w.revision },
+                  p.stepId,
+                  { childTaskId: task.taskId, kind: "started" }
+                )
+              );
+
+              return commit(
+                recordWorkflowTask(
+                  resolved,
+                  { owner: resolved.owner, revision: resolved.revision },
+                  p.stepId,
+                  task
+                )
+              );
+            }
           )
         );
       },
@@ -335,62 +403,81 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
             throw new Error("Only local steps can start here");
           }
 
-          const intent = await store.transition(
-            ctx,
-            p.workflowId,
-            p.revision,
-            (w) =>
-              launchWorkflowStep(
-                w,
-                { owner: w.owner, revision: w.revision },
-                p.stepId,
-                randomUUID()
-              )
-          );
-
           return result(
-            await store.transition(ctx, p.workflowId, intent.revision, (w) =>
-              recordWorkflowLaunch(
-                w,
-                { owner: w.owner, revision: w.revision },
-                p.stepId,
-                { kind: "started" }
-              )
+            await store.effect(
+              ctx,
+              p.workflowId,
+              p.revision,
+              async (w, commit) => {
+                authorize(ctx, w);
+
+                const intent = commit(
+                  launchWorkflowStep(
+                    w,
+                    { owner: w.owner, revision: w.revision },
+                    p.stepId,
+                    randomUUID()
+                  )
+                );
+
+                return commit(
+                  recordWorkflowLaunch(
+                    intent,
+                    { owner: intent.owner, revision: intent.revision },
+                    p.stepId,
+                    { kind: "started" }
+                  )
+                );
+              }
             )
           );
         }
 
         let childStatus: ChildStatus | undefined;
+        let { revision } = p;
 
-        if (p.action === "finish" && step.executor.kind === "delegated") {
-          const taskId = step.attempts.at(-1)?.childTaskId;
-          const name = findT3Tool(ctx.tools, "task_status");
+        if (
+          (p.action === "finish" || p.action === "cancel") &&
+          step.executor.kind === "delegated" &&
+          step.attempts.at(-1)?.childTaskId
+        ) {
+          const saved = await observeWorkflowChild(
+            ctx,
+            store,
+            current,
+            step.id,
+            p.action === "cancel"
+          );
 
-          if (!taskId || !name) {
-            throw new Error("Saved child task and T3 task_status required");
+          if (p.action === "cancel") {
+            return result(saved);
           }
 
-          const response = await ctx.executeTool(name, { taskId });
+          ({ revision } = saved);
 
-          if (response.isError) {
-            throw new TypeError("T3 task_status failed");
+          const task = saved.steps
+            .find((item) => item.id === step.id)
+            ?.attempts.at(-1)?.task;
+
+          if (!completeChild(task)) {
+            return result(saved);
           }
 
-          childStatus = t3Json(status, response.result);
-
-          if (
-            !childStatus ||
-            childStatus.taskId !== taskId ||
-            childStatus.workState !== "result_available" ||
-            childStatus.hasPendingChildRuns
-          ) {
-            throw new Error("Child is not terminal or has pending descendants");
-          }
+          childStatus = task;
         }
 
+        const childLink =
+          step.executor.kind === "delegated"
+            ? (childStatus?.link ?? undefined)
+            : p.childLink;
+
         return result(
-          await store.transition(ctx, p.workflowId, p.revision, (w) => {
+          await store.transition(ctx, p.workflowId, revision, (w) => {
             const guard = { owner: w.owner, revision: w.revision };
+
+            if (["retry", "resume"].includes(p.action)) {
+              authorize(ctx, w);
+            }
 
             switch (p.action) {
               case "wait": {
@@ -432,7 +519,7 @@ export const registerWorkflowTools = (pi: ExtensionAPI): void => {
                   {
                     artifacts: p.artifacts ?? [],
                     checkout: childStatus?.checkout ?? p.checkout,
-                    childLink: childStatus?.link ?? p.childLink,
+                    childLink,
                     evidence: Object.fromEntries(
                       (p.evidence ?? []).map((e) => [e.id, e.value])
                     ),

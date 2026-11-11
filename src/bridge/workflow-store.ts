@@ -180,7 +180,7 @@ export const createWorkflowStore = (pi: ExtensionAPI) => {
   const effect = (
     ctx: ExtensionContext,
     id: string,
-    revision: number,
+    revision: number | undefined,
     run: (
       current: Workflow,
       commit: (next: Workflow) => Workflow
@@ -195,7 +195,7 @@ export const createWorkflowStore = (pi: ExtensionAPI) => {
 
       assertOwner(ctx, current);
 
-      if (current.revision !== revision) {
+      if (revision !== undefined && current.revision !== revision) {
         throw new Error("Workflow revision conflict");
       }
 

@@ -108,8 +108,8 @@ export const taskDisposition = (
 
   if (
     runEnded(task) &&
-    task.hasPendingChildRuns !== true &&
-    task.workState !== "waiting_for_children"
+    task.hasPendingChildRuns === false &&
+    task.workState === "result_available"
   ) {
     return "finished";
   }
