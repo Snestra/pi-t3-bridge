@@ -430,8 +430,9 @@ export const finishWorkflowStep = (
           childStatus.workState === "result_available" &&
           !childStatus.hasPendingQuestion &&
           !childStatus.pendingApproval &&
-          childStatus.status ===
-            (outcome === "succeeded" ? "completed" : outcome),
+          (childStatus.status ===
+            (outcome === "succeeded" ? "completed" : outcome) ||
+            (outcome === "cancelled" && childStatus.status === "interrupted")),
         "Authoritative terminal child status with no live child work required"
       );
       attempt.childTerminal = outcome;
