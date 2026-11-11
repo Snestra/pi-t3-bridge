@@ -1035,6 +1035,7 @@ export const registerGoal = (
             ctx,
             goalCard({
               ...goal,
+              acceptance: goalAcceptanceSnapshot(ctx, goal),
               execution: execution.inspectGoal(ctx, identityOf(goal)),
             })
           );
@@ -1106,7 +1107,10 @@ export const registerGoal = (
           conditions,
           criteriaRevision: goal.criteriaRevision + (changed ? 1 : 0),
           evidence: changed ? [] : params.evidence,
-          nextAction: params.nextAction ?? goal.nextAction,
+          nextAction:
+            params.nextAction === undefined
+              ? goal.nextAction
+              : params.nextAction,
           noProgressCycles: progressed ? 0 : goal.noProgressCycles,
           progressAt: progressed ? Date.now() : goal.progressAt,
           progressRequirements: [
@@ -1124,6 +1128,7 @@ export const registerGoal = (
           ctx,
           goalCard({
             ...next,
+            acceptance: goalAcceptanceSnapshot(ctx, next),
             execution: execution.inspectGoal(ctx, identityOf(next)),
           })
         );
