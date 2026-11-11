@@ -1583,16 +1583,36 @@ export const registerGoal = (
       return;
     }
 
-    if (
-      isT3Tool(event.toolName, "delegate_task") &&
-      (goal.status !== "active" || held(ctx, goal))
-    ) {
-      return { block: true, reason: "Goal launches are suspended." };
+    if (isT3Tool(event.toolName, "delegate_task")) {
+      if (goal.status !== "active" || needsUser(ctx, goal)) {
+        return { block: true, reason: "Goal launches are suspended." };
+      }
+
+      const requestId =
+        "clientRequestId" in event.input
+          ? event.input.clientRequestId
+          : undefined;
+
+      const owned =
+        event.parentToolCallId &&
+        execution
+          .inspectGoal(ctx, identityOf(goal))
+          .children.some(
+            (child) =>
+              child.requestId === requestId &&
+              !child.taskId &&
+              !child.cancellationPending
+          );
+
+      if (!owned) {
+        return {
+          block: true,
+          reason: "Use launch_workflow_step so the goal owns every child.",
+        };
+      }
     }
 
-    const producing = ["edit", "write", "bash", "powershell"].includes(
-      event.toolName
-    )
+    const producing = ["edit", "write"].includes(event.toolName)
       ? change(goal, {
           evidence: [],
           requirementRevision: goal.requirementRevision + 1,
