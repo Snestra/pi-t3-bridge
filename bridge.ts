@@ -15,6 +15,7 @@ import { registerT3Mcp } from "./src/bridge/t3-mcp.ts";
 import { tasksTool } from "./src/bridge/tasks.ts";
 import { registerTranscript } from "./src/bridge/transcript.ts";
 import { registerUsage } from "./src/bridge/usage.ts";
+import { registerWorkflowTools } from "./src/bridge/workflow-tools.ts";
 
 // The Pi to T3 bridge. It imports only src/bridge and npm packages, so it runs
 // on its own when the other extension in this package is turned off.
@@ -23,6 +24,7 @@ const piT3Bridge = (pi: ExtensionAPI): void => {
   registerConfig(pi);
   registerTranscript(pi);
   registerUnlessTaken(pi, tasksTool);
+  registerWorkflowTools(pi);
   registerBashTimeout(pi);
   registerSkills(pi);
   registerPlanGate(pi);

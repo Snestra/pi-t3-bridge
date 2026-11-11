@@ -43,6 +43,7 @@ export interface WorkflowStep {
   dependencies: string[];
   executor: WorkflowExecutor;
   acceptance: string[];
+  integrates?: string[];
   state: WorkflowState;
   blocked?: { kind: "dependency" | "decision"; id: string };
   attempts: WorkflowAttempt[];
@@ -88,7 +89,8 @@ function refresh(workflow: Workflow): void {
       .find(
         (item) =>
           item.state !== "succeeded" ||
-          item.attempts.at(-1)?.result?.integration === "unintegrated"
+          (item.attempts.at(-1)?.result?.integration === "unintegrated" &&
+            !step.integrates?.includes(item.id))
       );
 
     step.state = dependency ? "pending" : "ready";
@@ -118,6 +120,11 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
       "Step IDs must be unique and nonempty, with a purpose"
     );
     ids.add(step.id);
+    requireValue(
+      (step.integrates ?? []).every((id) => step.dependencies.includes(id)) &&
+        (!(step.integrates?.length) || step.executor.isolation === "shared"),
+      "Integration targets must be dependencies of a shared step"
+    );
     requireValue(
       step.acceptance.every(Boolean) &&
         new Set(step.acceptance).size === step.acceptance.length &&
@@ -388,6 +395,7 @@ export function integrateWorkflowStep(
       integrationStepId !== stepId &&
         integrationStep?.state === "succeeded" &&
         integrationStep.executor.isolation === "shared" &&
+        integrationStep.integrates?.includes(stepId) &&
         evidence.trim(),
       "A separate successful shared integration step and evidence are required"
     );
