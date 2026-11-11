@@ -96,6 +96,36 @@ const requireValue: <T>(condition: T, message: string) => asserts condition = (
   }
 };
 
+const stepAccepted = (
+  step: WorkflowStep,
+  allowUnintegrated = false
+): boolean => {
+  const attempt = step.attempts.at(-1);
+
+  if (
+    step.state !== "succeeded" ||
+    !attempt?.result ||
+    attempt.cancellationPending ||
+    (attempt.result.integration === "unintegrated" && !allowUnintegrated)
+  ) {
+    return false;
+  }
+
+  if (!step.acceptance.every((id) => attempt.result?.evidence[id]?.trim())) {
+    return false;
+  }
+
+  return (
+    step.executor.kind === "local" ||
+    (attempt.childTerminal === "succeeded" &&
+      attempt.task?.status === "completed" &&
+      attempt.task.hasPendingChildRuns === false &&
+      attempt.task.workState === "result_available" &&
+      !attempt.task.hasPendingQuestion &&
+      !attempt.task.pendingApproval)
+  );
+};
+
 const refresh = (workflow: Workflow): void => {
   for (const step of workflow.steps) {
     if (step.state !== "pending" && step.state !== "ready") {
@@ -104,12 +134,7 @@ const refresh = (workflow: Workflow): void => {
 
     const dependency = step.dependencies
       .flatMap((id) => workflow.steps.filter((item) => item.id === id))
-      .find(
-        (item) =>
-          item.state !== "succeeded" ||
-          (item.attempts.at(-1)?.result?.integration === "unintegrated" &&
-            !step.integrates?.includes(item.id))
-      );
+      .find((item) => !stepAccepted(item, step.integrates?.includes(item.id)));
 
     step.state = dependency ? "pending" : "ready";
     step.blocked = dependency
@@ -378,6 +403,8 @@ export const finishWorkflowStep = (
     status: string;
     workState: string;
     hasPendingChildRuns: boolean;
+    hasPendingQuestion?: boolean;
+    pendingApproval?: unknown;
   }
 ): Workflow =>
   change(workflow, guard, stepId, (step) => {
@@ -400,13 +427,20 @@ export const finishWorkflowStep = (
         childStatus !== undefined &&
           childStatus.taskId === attempt.childTaskId &&
           childStatus.hasPendingChildRuns === false &&
-          childStatus.workState !== "waiting_for_children" &&
+          childStatus.workState === "result_available" &&
+          !childStatus.hasPendingQuestion &&
+          !childStatus.pendingApproval &&
           childStatus.status ===
             (outcome === "succeeded" ? "completed" : outcome),
         "Authoritative terminal child status with no live child work required"
       );
       attempt.childTerminal = outcome;
-      attempt.task = { ...attempt.task, ...childStatus };
+      attempt.task = {
+        ...attempt.task,
+        ...childStatus,
+        hasPendingQuestion: childStatus.hasPendingQuestion,
+        pendingApproval: childStatus.pendingApproval,
+      };
       attempt.cancellationPending = false;
     }
 
@@ -452,32 +486,7 @@ export const integrateWorkflowStep = (
 
 export const workflowAccepted = (workflow: Workflow): boolean =>
   workflow.steps.length > 0 &&
-  workflow.steps.every((step) => {
-    const attempt = step.attempts.at(-1);
-
-    if (
-      step.state !== "succeeded" ||
-      !attempt?.result ||
-      attempt.cancellationPending ||
-      attempt.result.integration === "unintegrated"
-    ) {
-      return false;
-    }
-
-    if (!step.acceptance.every((id) => attempt.result?.evidence[id]?.trim())) {
-      return false;
-    }
-
-    return (
-      step.executor.kind === "local" ||
-      (attempt.childTerminal === "succeeded" &&
-        attempt.task?.status === "completed" &&
-        attempt.task.hasPendingChildRuns === false &&
-        attempt.task.workState === "result_available" &&
-        !attempt.task.hasPendingQuestion &&
-        !attempt.task.pendingApproval)
-    );
-  });
+  workflow.steps.every((step) => stepAccepted(step));
 
 export const recordWorkflowTask = (
   workflow: Workflow,
