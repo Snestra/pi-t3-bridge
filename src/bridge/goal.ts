@@ -105,16 +105,16 @@ const factInput = compile(FactSchema);
 
 const GoalSchema = obj({
   blocker: nullable(TEXT),
-  blockerCycles: int({ minimum: 0 }),
+  blockerCycles: opt(int({ minimum: 0 })),
   conditions: arr(CONDITION),
-  cycleBlocker: nullable(TEXT),
+  cycleBlocker: opt(nullable(TEXT)),
   evidence: EVIDENCE,
   id: TEXT,
   nextAction: nullable(ACTION),
   noProgressCycles: int({ minimum: 0 }),
   objective: TEXT,
   progressAt: int({ minimum: 0 }),
-  progressRequirements: arr(TEXT),
+  progressRequirements: opt(arr(TEXT)),
   reason: nullable(str()),
   requirementRevision: REVISION,
   revision: REVISION,
@@ -128,7 +128,11 @@ const GoalSchema = obj({
   ),
 });
 
-export type Goal = Static<typeof GoalSchema>;
+export type Goal = Static<typeof GoalSchema> & {
+  blockerCycles: number;
+  cycleBlocker: string | null;
+  progressRequirements: string[];
+};
 
 export type { GoalIdentity } from "./resume.ts";
 
@@ -241,7 +245,14 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
     throw new Error(INVALID_STATE);
   }
 
-  return goal;
+  return goal === null
+    ? null
+    : {
+        ...goal,
+        blockerCycles: goal.blockerCycles ?? 0,
+        cycleBlocker: goal.cycleBlocker ?? null,
+        progressRequirements: goal.progressRequirements ?? [],
+      };
 };
 
 const goalNeedsUser = (ctx: ExtensionContext, goal: Goal): boolean => {
@@ -586,6 +597,18 @@ const identityOf = (goal: Goal): GoalIdentity => ({
   revision: goal.revision,
 });
 
+const blockerTracking = (
+  goal: Goal,
+  reason: string | null,
+  progressed: boolean
+): Pick<Goal, "blockerCycles" | "cycleBlocker"> => {
+  if (reason !== goal.blocker || progressed) {
+    return { blockerCycles: 0, cycleBlocker: null };
+  }
+
+  return { blockerCycles: goal.blockerCycles, cycleBlocker: goal.cycleBlocker };
+};
+
 const countBlockerCycles = (goal: Goal, progressed: boolean): number => {
   if (progressed || !goal.blocker) {
     return 0;
@@ -660,7 +683,7 @@ export const registerGoal = (
   let ownedRun: GoalIdentity | undefined;
   let failure: string | undefined;
   let stopping: Promise<void> | undefined;
-  let cycleStarted = Date.now();
+  let cycleProgress = 0;
 
   const workspaceState = async (
     ctx: ExtensionContext
@@ -938,6 +961,7 @@ export const registerGoal = (
 
         const next = change(goal, {
           blocker: params.status === "active" ? params.reason : goal.blocker,
+          ...blockerTracking(goal, params.reason, progressed),
           conditions,
           evidence: changed ? [] : params.evidence,
           nextAction: params.nextAction ?? goal.nextAction,
@@ -1328,7 +1352,7 @@ export const registerGoal = (
     ownedRun = goal?.status === "active" ? identityOf(goal) : undefined;
 
     failure = undefined;
-    cycleStarted = Date.now();
+    cycleProgress = goal?.progressRequirements.length ?? 0;
   });
   pi.on("context", (event, ctx) => {
     const goal = readGoal(ctx);
@@ -1379,9 +1403,9 @@ export const registerGoal = (
       return;
     }
 
-    const progressed = goal.progressAt > cycleStarted;
+    const progressed = goal.progressRequirements.length > cycleProgress;
     const cycles = progressed ? 0 : goal.noProgressCycles + 1;
-    cycleStarted = Date.now();
+    cycleProgress = goal.progressRequirements.length;
     const blockerCycles = countBlockerCycles(goal, progressed);
 
     const next = change(goal, {
