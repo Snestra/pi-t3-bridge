@@ -265,7 +265,8 @@ export const createWorkflowStore = (pi: ExtensionAPI) => {
       stepId: string,
       requestId: string,
       execute: () => Promise<WorkflowTask | undefined>,
-      requested?: { target?: WorkflowTarget; isolation: "shared" | "worktree" }
+      requested?: { target?: WorkflowTarget; isolation: "shared" | "worktree" },
+      authorize?: (current: Workflow) => void
     ) {
       return serialize(async () => {
         const current = readWorkflow(ctx, id);
@@ -275,6 +276,7 @@ export const createWorkflowStore = (pi: ExtensionAPI) => {
         }
 
         assertOwner(ctx, current);
+        authorize?.(current);
 
         const launching = launchWorkflowStep(
           current,

@@ -107,7 +107,8 @@ export const taskDisposition = (
   }
 
   if (
-    runEnded(task) &&
+    task.status !== undefined &&
+    isTerminalStatus(task.status) &&
     task.hasPendingChildRuns === false &&
     task.workState === "result_available"
   ) {

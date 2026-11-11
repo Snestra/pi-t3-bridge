@@ -245,15 +245,6 @@ export const registerWorkflowTools = (
             params.stepId,
             requestId,
             async () => {
-              const latest = store.read(ctx, params.workflowId);
-
-              if (!latest) {
-                throw new Error("Unknown workflow");
-              }
-
-              store.assertOwner(ctx, latest);
-              authorize(ctx, latest);
-
               const response = await ctx.executeTool(name, {
                 clientRequestId: requestId,
                 isolation: step.executor.isolation,
@@ -264,7 +255,8 @@ export const registerWorkflowTools = (
 
               return taskOutcome(name, response.result, response.isError);
             },
-            { isolation: step.executor.isolation, target: params.target }
+            { isolation: step.executor.isolation, target: params.target },
+            (latest) => authorize(ctx, latest)
           )
         );
       },
