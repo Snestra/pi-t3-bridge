@@ -44,30 +44,32 @@ const TaskInputSchema = obj({
   workflowId: opt(str({ minLength: 1 })),
 });
 
-export function projectWorkflow(workflow: Workflow): TaskSnapshot {
-  return {
-    steps: workflow.steps.map((step) => {
-      const integration = step.attempts.at(-1)?.result?.integration;
-      const details = [
-        step.blocked && `blocked: ${step.blocked.kind} ${step.blocked.id}`,
-        integration && `integration: ${integration}`,
-      ].filter(Boolean);
+export const projectWorkflow = (workflow: Workflow): TaskSnapshot => ({
+  steps: workflow.steps.map((step) => {
+    const integration = step.attempts.at(-1)?.result?.integration;
 
-      return {
-        id: step.id,
-        status:
-          step.state === "succeeded"
-            ? "completed"
-            : ["running", "waiting_for_user", "waiting_for_child"].includes(
-                  step.state
-                )
-              ? "in_progress"
-              : "pending",
-        text: `${step.purpose}${details.length ? ` (${details.join(", ")})` : ""}`,
-      };
-    }),
-  };
-}
+    const details = [
+      step.blocked && `blocked: ${step.blocked.kind} ${step.blocked.id}`,
+      integration && `integration: ${integration}`,
+    ].filter(Boolean);
+
+    let status: TaskStatus = "pending";
+
+    if (step.state === "succeeded") {
+      status = "completed";
+    } else if (
+      ["running", "waiting_for_user", "waiting_for_child"].includes(step.state)
+    ) {
+      status = "in_progress";
+    }
+
+    return {
+      id: step.id,
+      status,
+      text: `${step.purpose}${details.length ? ` (${details.join(", ")})` : ""}`,
+    };
+  }),
+});
 
 const WORDS: Readonly<Record<TaskStatus, string>> = {
   completed: "done",
@@ -125,12 +127,14 @@ export const tasksTool = defineTool({
     if (params.workflowId && !workflow) {
       throw new Error("Unknown workflow");
     }
+
     if (!workflow && !params.steps) {
       throw new Error("Steps are required");
     }
+
     const snapshot: TaskSnapshot = workflow
       ? projectWorkflow(workflow)
-      : { explanation: params.explanation, steps: params.steps! };
+      : { explanation: params.explanation, steps: params.steps ?? [] };
 
     if (!workflow) {
       checkSnapshot(snapshot);

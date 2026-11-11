@@ -1,3 +1,14 @@
+import type { Static } from "@earendil-works/pi-schema";
+
+import type {
+  workflowTaskSchema,
+  workflowTargetSchema,
+} from "./workflow-schema.ts";
+
+export type WorkflowTask = Static<typeof workflowTaskSchema>;
+
+export type WorkflowTarget = Static<typeof workflowTargetSchema>;
+
 export type WorkflowState =
   | "pending"
   | "ready"
@@ -30,6 +41,10 @@ export interface WorkflowResult {
 
 export interface WorkflowAttempt {
   requestId: string;
+  requestedTarget?: WorkflowTarget;
+  requestedIsolation?: "shared" | "worktree";
+  task?: WorkflowTask;
+  cancellationPending?: boolean;
   launch: "intent" | "unknown" | "started" | "not_started";
   childTaskId?: string;
   childTurnEnded?: boolean;
@@ -72,20 +87,23 @@ export interface WorkflowGuard {
   revision: number;
 }
 
-function requireValue(condition: unknown, message: string): asserts condition {
+const requireValue: <T>(condition: T, message: string) => asserts condition = (
+  condition,
+  message
+) => {
   if (!condition) {
     throw new Error(message);
   }
-}
+};
 
-function refresh(workflow: Workflow): void {
+const refresh = (workflow: Workflow): void => {
   for (const step of workflow.steps) {
     if (step.state !== "pending" && step.state !== "ready") {
       continue;
     }
 
     const dependency = step.dependencies
-      .map((id) => workflow.steps.find((item) => item.id === id)!)
+      .flatMap((id) => workflow.steps.filter((item) => item.id === id))
       .find(
         (item) =>
           item.state !== "succeeded" ||
@@ -98,9 +116,13 @@ function refresh(workflow: Workflow): void {
       ? { id: dependency.id, kind: "dependency" }
       : undefined;
   }
-}
+};
 
-export function createWorkflow(definition: WorkflowDefinition): Workflow {
+const executable = (executor: WorkflowExecutor): boolean =>
+  executor.isolation === "shared" ||
+  (executor.kind === "delegated" && executor.isolation === "worktree");
+
+export const createWorkflow = (definition: WorkflowDefinition): Workflow => {
   requireValue(
     definition.id && definition.owner.sessionId && definition.owner.branchId,
     "Workflow and owner IDs are required"
@@ -121,8 +143,12 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
     );
     ids.add(step.id);
     requireValue(
+      executable(step.executor),
+      "Local steps use the shared checkout; delegated steps use shared or worktree isolation"
+    );
+    requireValue(
       (step.integrates ?? []).every((id) => step.dependencies.includes(id)) &&
-        (!(step.integrates?.length) || step.executor.isolation === "shared"),
+        (!step.integrates?.length || step.executor.isolation === "shared"),
       "Integration targets must be dependencies of a shared step"
     );
     requireValue(
@@ -134,6 +160,19 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
     requireValue(
       new Set(step.dependencies).size === step.dependencies.length,
       "Duplicate dependency"
+    );
+  }
+
+  for (const step of definition.steps) {
+    requireValue(
+      new Set(step.integrates).size === (step.integrates ?? []).length &&
+        (step.integrates ?? []).every((id) =>
+          definition.steps.some(
+            (producer) =>
+              producer.id === id && producer.executor.isolation === "worktree"
+          )
+        ),
+      "Integration targets must be distinct worktree producers"
     );
   }
 
@@ -150,8 +189,8 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
 
     visiting.add(id);
 
-    for (const dependency of definition.steps.find((step) => step.id === id)!
-      .dependencies) {
+    for (const dependency of definition.steps.find((step) => step.id === id)
+      ?.dependencies ?? []) {
       visit(dependency);
     }
 
@@ -177,14 +216,14 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
   refresh(workflow);
 
   return workflow;
-}
+};
 
-function change(
+const change = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string,
   action: (step: WorkflowStep, copy: Workflow) => void
-): Workflow {
+): Workflow => {
   requireValue(
     workflow.revision === guard.revision,
     "Workflow revision conflict"
@@ -198,19 +237,20 @@ function change(
   const step = copy.steps.find((item) => item.id === stepId);
   requireValue(step, `Unknown step: ${stepId}`);
   action(step, copy);
-  copy.revision++;
+  copy.revision += 1;
   refresh(copy);
 
   return copy;
-}
+};
 
-export function launchWorkflowStep(
+export const launchWorkflowStep = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string,
-  requestId: string
-): Workflow {
-  return change(workflow, guard, stepId, (step, copy) => {
+  requestId: string,
+  requested?: { target?: WorkflowTarget; isolation: "shared" | "worktree" }
+): Workflow =>
+  change(workflow, guard, stepId, (step, copy) => {
     requireValue(step.state === "ready", "Step is not ready");
     requireValue(
       requestId &&
@@ -228,8 +268,7 @@ export function launchWorkflowStep(
       (item) =>
         item.state === "running" ||
         item.state === "waiting_for_child" ||
-        (item.state === "waiting_for_user" &&
-          item.attempts.at(-1)?.launch === "unknown")
+        item.state === "waiting_for_user"
     );
 
     requireValue(active.length < copy.concurrency, "Concurrency limit reached");
@@ -238,18 +277,30 @@ export function launchWorkflowStep(
         !active.some((item) => item.executor.isolation === "shared"),
       "Shared writer already active"
     );
-    step.attempts.push({ launch: "intent", requestId });
+
+    if (requested) {
+      requireValue(
+        requested.isolation === step.executor.isolation,
+        "Requested isolation must match the step"
+      );
+    }
+
+    step.attempts.push({
+      launch: "intent",
+      requestId,
+      requestedIsolation: requested?.isolation,
+      requestedTarget: requested?.target,
+    });
     step.state = "running";
   });
-}
 
-export function recordWorkflowLaunch(
+export const recordWorkflowLaunch = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string,
   outcome: { kind: "started"; childTaskId?: string } | { kind: "unknown" }
-): Workflow {
-  return change(workflow, guard, stepId, (step) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
     const attempt = step.attempts.at(-1);
     requireValue(
       step.state === "running" && attempt?.launch === "intent",
@@ -271,17 +322,16 @@ export function recordWorkflowLaunch(
         step.executor.kind === "delegated" ? "waiting_for_child" : "running";
     }
   });
-}
 
-export function reconcileWorkflowLaunch(
+export const reconcileWorkflowLaunch = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string,
   resolution:
     | { kind: "started"; childTaskId?: string }
     | { kind: "not_started" }
-): Workflow {
-  return change(workflow, guard, stepId, (step) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
     const attempt = step.attempts.at(-1);
     requireValue(
       step.state === "waiting_for_user" && attempt?.launch === "unknown",
@@ -304,20 +354,20 @@ export function reconcileWorkflowLaunch(
 
     step.blocked = undefined;
   });
-}
 
-export function recordChildTurnEnded(
+export const recordChildTurnEnded = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string
-): Workflow {
-  return change(workflow, guard, stepId, (step) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
     requireValue(step.state === "waiting_for_child", "No active child");
-    step.attempts.at(-1)!.childTurnEnded = true;
+    const attempt = step.attempts.at(-1);
+    requireValue(attempt, "Missing child attempt");
+    attempt.childTurnEnded = true;
   });
-}
 
-export function finishWorkflowStep(
+export const finishWorkflowStep = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string,
@@ -329,8 +379,8 @@ export function finishWorkflowStep(
     workState: string;
     hasPendingChildRuns: boolean;
   }
-): Workflow {
-  return change(workflow, guard, stepId, (step) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
     const attempt = step.attempts.at(-1);
     requireValue(
       attempt?.launch === "started" &&
@@ -340,11 +390,7 @@ export function finishWorkflowStep(
 
     if (outcome === "succeeded") {
       requireValue(
-        step.acceptance.every(
-          (id) =>
-            typeof result.evidence[id] === "string" &&
-            result.evidence[id].trim()
-        ),
+        step.acceptance.every((id) => result.evidence[id]?.trim()),
         "All acceptance conditions need evidence"
       );
     }
@@ -360,6 +406,8 @@ export function finishWorkflowStep(
         "Authoritative terminal child status with no live child work required"
       );
       attempt.childTerminal = outcome;
+      attempt.task = { ...attempt.task, ...childStatus };
+      attempt.cancellationPending = false;
     }
 
     attempt.result = {
@@ -371,16 +419,15 @@ export function finishWorkflowStep(
     };
     step.state = outcome;
   });
-}
 
-export function integrateWorkflowStep(
+export const integrateWorkflowStep = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string,
   integrationStepId: string,
   evidence: string
-): Workflow {
-  return change(workflow, guard, stepId, (step) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
     const result = step.attempts.at(-1)?.result;
     requireValue(
       step.state === "succeeded" && result?.integration === "unintegrated",
@@ -402,14 +449,90 @@ export function integrateWorkflowStep(
     result.integration = "integrated";
     result.integrationEvidence = { evidence, stepId: integrationStepId };
   });
-}
 
-export function retryWorkflowStep(
+export const workflowAccepted = (workflow: Workflow): boolean =>
+  workflow.steps.length > 0 &&
+  workflow.steps.every((step) => {
+    const attempt = step.attempts.at(-1);
+
+    if (
+      step.state !== "succeeded" ||
+      !attempt?.result ||
+      attempt.cancellationPending ||
+      attempt.result.integration === "unintegrated"
+    ) {
+      return false;
+    }
+
+    if (!step.acceptance.every((id) => attempt.result?.evidence[id]?.trim())) {
+      return false;
+    }
+
+    return (
+      step.executor.kind === "local" ||
+      (attempt.childTerminal === "succeeded" &&
+        attempt.task?.status === "completed" &&
+        attempt.task.hasPendingChildRuns === false &&
+        attempt.task.workState === "result_available" &&
+        !attempt.task.hasPendingQuestion &&
+        !attempt.task.pendingApproval)
+    );
+  });
+
+export const recordWorkflowTask = (
+  workflow: Workflow,
+  guard: WorkflowGuard,
+  stepId: string,
+  task: WorkflowTask
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
+    const attempt = step.attempts.at(-1);
+    requireValue(
+      attempt?.childTaskId === task.taskId,
+      "Task must belong to this attempt"
+    );
+    requireValue(attempt, "Missing attempt");
+    attempt.task = structuredClone(task);
+
+    if (
+      [
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "rolled_back",
+      ].includes(task.status ?? "") &&
+      task.hasPendingChildRuns === false &&
+      task.workState === "result_available"
+    ) {
+      attempt.cancellationPending = false;
+    }
+  });
+
+export const requestWorkflowCancellation = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string
-): Workflow {
-  return change(workflow, guard, stepId, (step, copy) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
+    const attempt = step.attempts.at(-1);
+    requireValue(
+      attempt?.childTaskId && attempt.launch === "started",
+      "Only a known child can be cancelled"
+    );
+    requireValue(
+      !["succeeded", "failed", "cancelled"].includes(step.state),
+      "Do not cancel a completed step"
+    );
+    attempt.cancellationPending = true;
+  });
+
+export const retryWorkflowStep = (
+  workflow: Workflow,
+  guard: WorkflowGuard,
+  stepId: string
+): Workflow =>
+  change(workflow, guard, stepId, (step, copy) => {
     requireValue(
       (step.state === "failed" || step.state === "cancelled") &&
         step.attempts.length < copy.maxAttempts,
@@ -417,14 +540,47 @@ export function retryWorkflowStep(
     );
     step.state = "pending";
   });
-}
 
-export function cancelWorkflowStep(
+export const waitWorkflowStep = (
+  workflow: Workflow,
+  guard: WorkflowGuard,
+  stepId: string,
+  decision: string
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
+    requireValue(
+      step.state === "running" &&
+        step.executor.kind === "local" &&
+        step.attempts.at(-1)?.launch === "started",
+      "Only an active local step can wait for a decision"
+    );
+    requireValue(decision.trim(), "Name the decision holding the step");
+    step.state = "waiting_for_user";
+    step.blocked = { id: decision, kind: "decision" };
+  });
+
+export const resumeWorkflowStep = (
   workflow: Workflow,
   guard: WorkflowGuard,
   stepId: string
-): Workflow {
-  return change(workflow, guard, stepId, (step) => {
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
+    requireValue(
+      step.state === "waiting_for_user" &&
+        step.executor.kind === "local" &&
+        step.attempts.at(-1)?.launch === "started",
+      "Only a local decision wait can resume"
+    );
+    step.state = "running";
+    step.blocked = undefined;
+  });
+
+export const cancelWorkflowStep = (
+  workflow: Workflow,
+  guard: WorkflowGuard,
+  stepId: string
+): Workflow =>
+  change(workflow, guard, stepId, (step) => {
     requireValue(
       step.state === "pending" || step.state === "ready",
       "Only unstarted steps can be cancelled"
@@ -432,4 +588,3 @@ export function cancelWorkflowStep(
     step.state = "cancelled";
     step.blocked = undefined;
   });
-}
