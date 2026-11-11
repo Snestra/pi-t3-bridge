@@ -12,6 +12,7 @@ import { registerResume } from "./src/bridge/resume.ts";
 import { registerSkills } from "./src/bridge/skills.ts";
 import { moveOldState } from "./src/bridge/state.ts";
 import { registerT3Mcp } from "./src/bridge/t3-mcp.ts";
+import { registerTaskOutcomes } from "./src/bridge/t3-tasks.ts";
 import { tasksTool } from "./src/bridge/tasks.ts";
 import { registerTranscript } from "./src/bridge/transcript.ts";
 import { registerUsage } from "./src/bridge/usage.ts";
@@ -24,6 +25,7 @@ const piT3Bridge = (pi: ExtensionAPI): void => {
   registerConfig(pi);
   registerTranscript(pi);
   registerUnlessTaken(pi, tasksTool);
+  registerTaskOutcomes(pi);
   registerWorkflowTools(pi);
   registerBashTimeout(pi);
   registerSkills(pi);
