@@ -4,3 +4,4 @@ artifacts/
 .agents
 .humanlayer
 .scratch
+.vscode/settings.json
