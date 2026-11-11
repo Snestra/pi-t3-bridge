@@ -191,14 +191,16 @@ const snapshot = compile(SnapshotSchema);
 
 const legacySnapshot = compile(
   obj({
-    goal: obj({
-      evidence: arr(obj({ requirement: TEXT, result: TEXT, source: TEXT })),
-      id: TEXT,
-      objective: TEXT,
-      reason: nullable(str()),
-      revision: REVISION,
-      status: oneOf(["active", "paused", "blocked", "complete"]),
-    }),
+    goal: nullable(
+      obj({
+        evidence: arr(obj({ requirement: TEXT, result: TEXT, source: TEXT })),
+        id: TEXT,
+        objective: TEXT,
+        reason: nullable(str()),
+        revision: REVISION,
+        status: oneOf(["active", "paused", "blocked", "complete"]),
+      })
+    ),
     version: lit(1),
   })
 );
@@ -243,6 +245,10 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
   if (!snapshot.check(entry.data)) {
     if (legacySnapshot.check(entry.data)) {
       const old = entry.data.goal;
+
+      if (old === null) {
+        return null;
+      }
 
       return {
         ...old,
