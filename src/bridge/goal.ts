@@ -43,6 +43,10 @@ import { unfinishedWorkflows } from "./workflow-store.ts";
 const GOAL_ENTRY = "pi-t3-goal";
 const HOLD_ENTRY = "pi-t3-goal-question";
 const INSTRUCTION = "pi-t3-goal-instruction";
+
+const SUPERSEDED =
+  "An earlier goal instruction was here. Follow only the latest goal instruction, if any.";
+
 const WORDS = /^(?<word>\S+)(?:\s+(?<rest>[\s\S]*))?$/u;
 
 const TEXT = str({ minLength: 1, pattern: "\\S" });
@@ -1465,7 +1469,7 @@ export const registerGoal = (
     handler: async (args, ctx) => {
       try {
         if (args.trim() || !ctx.hasUI) {
-          await applyCommand(parseCommand(args), ctx);
+          await applyCommand(parseCommand(args.trim()), ctx);
 
           return;
         }
@@ -1681,13 +1685,33 @@ export const registerGoal = (
   pi.on("context", (event, ctx) => {
     const goal = readGoal(ctx);
 
-    if (goal === null || goal.id !== ownedRun?.id) {
+    // Each start and continuation saves an instruction in the session. The
+    // model sees only the current one, appended below. Saved copies keep their
+    // place as a short note, so the message order stays the same.
+    const saved = (
+      message: (typeof event.messages)[number]
+    ): message is Extract<typeof message, { role: "custom" }> =>
+      message.role === "custom" &&
+      message.customType === INSTRUCTION &&
+      message.content !== SUPERSEDED;
+
+    const owned = goal !== null && goal.id === ownedRun?.id;
+
+    if (!owned && !event.messages.some(saved)) {
       return;
+    }
+
+    const messages = event.messages.map((message) =>
+      saved(message) ? { ...message, content: SUPERSEDED } : message
+    );
+
+    if (!owned) {
+      return { messages };
     }
 
     return {
       messages: [
-        ...event.messages,
+        ...messages,
         {
           content: instruction(goal),
           customType: INSTRUCTION,

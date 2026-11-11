@@ -28,6 +28,7 @@ import type { Brief } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import {
   chooseSandbox,
+  releaseSandbox,
   quote,
   real,
   sandboxLabel,
@@ -251,6 +252,7 @@ const reportBlock = (report: Report): string => {
 
 interface ChildState {
   baselineKb: number | undefined;
+  closed: boolean;
   before: number | undefined;
   diskCheck: Promise<void>;
   diskOver: boolean;
@@ -265,6 +267,7 @@ export const registerChild = (pi: ExtensionAPI): void => {
   const state: ChildState = {
     baselineKb: undefined,
     before: undefined,
+    closed: false,
     diskCheck: Promise.resolve(),
     diskOver: false,
     diskQueued: false,
@@ -327,6 +330,14 @@ export const registerChild = (pi: ExtensionAPI): void => {
 
     state.sandbox = await chooseSandbox(ctx.cwd, state.gitDir);
 
+    // The session ended while the sandbox was chosen, so the shutdown handler
+    // found nothing to release.
+    if (state.closed) {
+      releaseSandbox(state.sandbox);
+
+      return;
+    }
+
     state.baselineKb = await duKb(ctx.cwd);
 
     const { redBeforeGreen } = readPolicy().briefs;
@@ -346,6 +357,11 @@ export const registerChild = (pi: ExtensionAPI): void => {
       state.greenAtStart = exit === 0;
     }
   };
+
+  pi.on("session_shutdown", () => {
+    state.closed = true;
+    releaseSandbox(state.sandbox);
+  });
 
   pi.on("before_agent_start", async (_event, ctx) => {
     const started = sessionBrief(ctx);

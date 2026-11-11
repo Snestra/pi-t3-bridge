@@ -11,7 +11,7 @@
     },
     {
       "find": "${XDG_STATE_HOME:-~/.local/state}/t3-pstack/",
-      "replace": "${XDG_STATE_HOME:-~/.local/state}/pi-t3-bridge/"
+      "replace": "${XDG_STATE_HOME:-~/.local/state}/pi-t3/"
     },
     {
       "find": "~/.local/state/t3-pstack/ledger.jsonl",
