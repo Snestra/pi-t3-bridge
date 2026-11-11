@@ -72,6 +72,19 @@ const EVIDENCE = arr(
 );
 
 const FACT_ENTRY = "pi-t3-goal-fact";
+const REVIEW_ENTRY = "pi-t3-goal-review";
+
+const reviewInput = compile(
+  obj({
+    at: int({ minimum: 0 }),
+    conditions: arr(CONDITION),
+    evidence: EVIDENCE,
+    goalId: TEXT,
+    goalRevision: REVISION,
+    objective: TEXT,
+    revision: REVISION,
+  })
+);
 
 const FactSchema = obj({
   at: int({ minimum: 0 }),
@@ -92,13 +105,16 @@ const factInput = compile(FactSchema);
 
 const GoalSchema = obj({
   blocker: nullable(TEXT),
+  blockerCycles: int({ minimum: 0 }),
   conditions: arr(CONDITION),
+  cycleBlocker: nullable(TEXT),
   evidence: EVIDENCE,
   id: TEXT,
   nextAction: nullable(ACTION),
   noProgressCycles: int({ minimum: 0 }),
   objective: TEXT,
   progressAt: int({ minimum: 0 }),
+  progressRequirements: arr(TEXT),
   reason: nullable(str()),
   requirementRevision: REVISION,
   revision: REVISION,
@@ -194,7 +210,9 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
       return {
         ...old,
         blocker: null,
+        blockerCycles: 0,
         conditions: [],
+        cycleBlocker: null,
         evidence: [],
         nextAction: {
           instruction: "Recheck the full objective and gather linked evidence.",
@@ -202,6 +220,7 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
         },
         noProgressCycles: 0,
         progressAt: 0,
+        progressRequirements: [],
         reason: "Saved goal needs fresh linked evidence. Use /goal resume.",
         requirementRevision: 1,
         status: "paused",
@@ -309,7 +328,6 @@ const validateArtifact = async (
 const validateClaim = (
   ctx: ExtensionContext,
   fact: Static<typeof FactSchema>,
-  records: Static<typeof FactSchema>[],
   item: Goal["evidence"][number]
 ): void => {
   if (
@@ -336,21 +354,30 @@ const validateClaim = (
   if (item.kind === "confirmation" && fact.kind !== "confirmation") {
     throw new Error("Not a user confirmation.");
   }
-
-  if (
-    ["judgment", "external"].includes(item.kind) &&
-    !records.some(
-      (record) =>
-        record.id === item.review &&
-        record.kind === "confirmation" &&
-        record.at >= fact.at &&
-        record.revision === item.revision &&
-        record.excerpt.includes(item.requirement)
-    )
-  ) {
-    throw new Error("Judgment and external claims need linked user review.");
-  }
 };
+
+const reviewed = (
+  ctx: ExtensionContext,
+  goal: Goal,
+  item: Goal["evidence"][number]
+): boolean =>
+  ctx.sessionManager
+    .getBranch()
+    .some(
+      (entry) =>
+        entry.type === "custom" &&
+        entry.customType === REVIEW_ENTRY &&
+        reviewInput.check(entry.data) &&
+        entry.data.goalId === goal.id &&
+        entry.data.revision === goal.requirementRevision &&
+        entry.data.goalRevision === goal.revision &&
+        entry.data.objective === goal.objective &&
+        JSON.stringify(entry.data.conditions) ===
+          JSON.stringify(goal.conditions) &&
+        entry.data.evidence.some(
+          (approved) => JSON.stringify(approved) === JSON.stringify(item)
+        )
+    );
 
 const validateEvidence = async (
   ctx: ExtensionContext,
@@ -386,7 +413,17 @@ const validateEvidence = async (
       );
     }
 
-    validateClaim(ctx, fact, records, item);
+    validateClaim(ctx, fact, item);
+
+    if (
+      complete &&
+      ["judgment", "external", "confirmation"].includes(item.kind) &&
+      !reviewed(ctx, goal, item)
+    ) {
+      throw new Error(
+        "Observed tool facts do not prove acceptance. Stage evidence and use /goal review to approve these exact claims."
+      );
+    }
   }
 
   await Promise.all(evidence.map((item) => validateArtifact(ctx, item)));
@@ -431,7 +468,7 @@ const validateUpdate = (
     params.status === "blocked" &&
     (!params.reason?.trim() ||
       goal.blocker !== params.reason ||
-      goal.noProgressCycles < 3)
+      goal.blockerCycles < 3)
   ) {
     throw new Error(
       "The same blocker must prevent progress in three consecutive cycles."
@@ -549,8 +586,16 @@ const identityOf = (goal: Goal): GoalIdentity => ({
   revision: goal.revision,
 });
 
+const countBlockerCycles = (goal: Goal, progressed: boolean): number => {
+  if (progressed || !goal.blocker) {
+    return 0;
+  }
+
+  return goal.cycleBlocker === goal.blocker ? goal.blockerCycles + 1 : 1;
+};
+
 const instruction = (goal: Goal): string =>
-  `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nAcceptance conditions (agent proposals, never a replacement for the objective):\n${JSON.stringify(goal.conditions)}\nNext action: ${JSON.stringify(goal.nextAction)}\nEvidence uses requirement ID objective for the full objective and stable condition IDs. Read get_goal for observed fact IDs, timestamps and excerpts. User review must say confirm followed by the requirement ID and confirmation text. Use requirementRevision for evidence revision.\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for user approval or an answer stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
+  `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nAcceptance conditions (agent proposals, never a replacement for the objective):\n${JSON.stringify(goal.conditions)}\nNext action: ${JSON.stringify(goal.nextAction)}\nEvidence uses requirement ID objective for the full objective and stable condition IDs. Read get_goal for observed fact IDs, timestamps and excerpts. User acceptance review uses /goal review after staging evidence. A successful tool only verifies its observed facts, not the acceptance claim. Use requirementRevision for evidence revision.\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for user approval or an answer stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
 
 const goalResult = (
   goal: Goal | null,
@@ -565,7 +610,7 @@ const goalResult = (
 
 type GoalCommand =
   | { readonly kind: "create" | "edit"; readonly objective: string }
-  | { readonly kind: "status" | "pause" | "resume" | "clear" };
+  | { readonly kind: "status" | "pause" | "resume" | "clear" | "review" };
 
 const parseCommand = (args: string): GoalCommand => {
   const text = args;
@@ -586,7 +631,12 @@ const parseCommand = (args: string): GoalCommand => {
     };
   }
 
-  if (word === "pause" || word === "resume" || word === "clear") {
+  if (
+    word === "pause" ||
+    word === "resume" ||
+    word === "clear" ||
+    word === "review"
+  ) {
     if (rest) {
       throw new Error("Invalid /goal arguments.");
     }
@@ -882,13 +932,23 @@ export const registerGoal = (
           throw new Error("The next action tool is not permitted or active.");
         }
 
+        const progressed = params.evidence.some(
+          (item) => !goal.progressRequirements.includes(item.requirement)
+        );
+
         const next = change(goal, {
           blocker: params.status === "active" ? params.reason : goal.blocker,
           conditions,
           evidence: changed ? [] : params.evidence,
           nextAction: params.nextAction ?? goal.nextAction,
-          noProgressCycles:
-            params.reason === goal.blocker ? goal.noProgressCycles : 0,
+          noProgressCycles: progressed ? 0 : goal.noProgressCycles,
+          progressAt: progressed ? Date.now() : goal.progressAt,
+          progressRequirements: [
+            ...new Set([
+              ...goal.progressRequirements,
+              ...params.evidence.map((item) => item.requirement),
+            ]),
+          ],
           reason: params.reason,
           requirementRevision: goal.requirementRevision + (changed ? 1 : 0),
           status: params.status,
@@ -971,11 +1031,69 @@ export const registerGoal = (
     }
   };
 
+  const reviewGoal = async (
+    ctx: ExtensionCommandContext,
+    goal: Goal
+  ): Promise<void> => {
+    if (!ctx.hasUI || goal.evidence.length === 0) {
+      throw new Error(
+        "Stage linked evidence before requesting user review in an interactive session."
+      );
+    }
+
+    const current = await refreshWorkspace(ctx, goal);
+
+    if (current.revision !== goal.revision) {
+      throw new Error("Evidence changed. Gather fresh evidence before review.");
+    }
+
+    await validateEvidence(ctx, goal, goal.evidence, false);
+
+    const approved = await ctx.ui.confirm(
+      "Approve acceptance claims",
+      JSON.stringify(
+        {
+          conditions: goal.conditions,
+          evidence: goal.evidence,
+          objective: goal.objective,
+        },
+        null,
+        2
+      )
+    );
+
+    const fresh = await refreshWorkspace(ctx, goal);
+
+    if (!approved || fresh.revision !== goal.revision) {
+      throw new Error(
+        "Acceptance review was not approved or the goal changed."
+      );
+    }
+
+    await validateEvidence(ctx, fresh, goal.evidence, false);
+    const final = readGoal(ctx);
+
+    if (final?.id !== goal.id || final.revision !== goal.revision) {
+      throw new Error("Goal changed during acceptance review.");
+    }
+
+    pi.appendEntry(REVIEW_ENTRY, {
+      at: Date.now(),
+      conditions: goal.conditions,
+      evidence: goal.evidence,
+      goalId: goal.id,
+      goalRevision: goal.revision,
+      objective: goal.objective,
+      revision: goal.requirementRevision,
+    });
+    describe(ctx, fresh);
+  };
+
   const applyCommand = async (
     command: GoalCommand,
     ctx: ExtensionCommandContext
   ): Promise<void> => {
-    if (command.kind !== "pause" && command.kind !== "clear") {
+    if (!["pause", "clear"].includes(command.kind)) {
       await stopping;
     }
 
@@ -996,7 +1114,9 @@ export const registerGoal = (
 
       activate(ctx, {
         blocker: null,
+        blockerCycles: 0,
         conditions: [],
+        cycleBlocker: null,
         evidence: [],
         id: randomUUID(),
         nextAction: {
@@ -1007,6 +1127,7 @@ export const registerGoal = (
         noProgressCycles: 0,
         objective: command.objective,
         progressAt: 0,
+        progressRequirements: [],
         reason: null,
         requirementRevision: 1,
         revision: 1,
@@ -1019,6 +1140,12 @@ export const registerGoal = (
 
     if (goal === null) {
       throw new Error("No goal saved.");
+    }
+
+    if (command.kind === "review") {
+      await reviewGoal(ctx, goal);
+
+      return;
     }
 
     if (command.kind === "pause" || command.kind === "clear") {
@@ -1036,10 +1163,13 @@ export const registerGoal = (
         ctx,
         change(goal, {
           blocker: null,
+          blockerCycles: 0,
           conditions: [],
+          cycleBlocker: null,
           evidence: [],
           noProgressCycles: 0,
           objective: command.objective,
+          progressRequirements: [],
           requirementRevision: goal.requirementRevision + 1,
         })
       );
@@ -1133,23 +1263,6 @@ export const registerGoal = (
     const goal = readGoal(ctx);
 
     if (
-      goal &&
-      event.source !== "extension" &&
-      event.text.startsWith("confirm ")
-    ) {
-      pi.appendEntry(FACT_ENTRY, {
-        at: Date.now(),
-        excerpt: event.text.slice(0, 1000),
-        goalId: goal.id,
-        id: randomUUID(),
-        kind: "confirmation",
-        producer: "user",
-        revision: goal.requirementRevision,
-        success: true,
-      });
-    }
-
-    if (
       goal !== null &&
       isChildWake(event.text) &&
       (goal.status !== "active" || needsUser(ctx, goal))
@@ -1198,23 +1311,7 @@ export const registerGoal = (
     ) {
       const fact = await observedFact(ctx, current, event);
 
-      const previous = facts(ctx, current).findLast(
-        (record) => record.producer === fact.producer
-      );
-
       pi.appendEntry(FACT_ENTRY, fact);
-
-      if (
-        fact.success &&
-        previous?.excerpt !== fact.excerpt &&
-        !["tasks", "task_status"].some((name) => isT3Tool(event.toolName, name))
-      ) {
-        const latest = readGoal(ctx);
-
-        if (latest?.id === current.id) {
-          change(latest, { noProgressCycles: 0, progressAt: Date.now() });
-        }
-      }
     }
 
     if (askStopped(event)) {
@@ -1285,13 +1382,21 @@ export const registerGoal = (
     const progressed = goal.progressAt > cycleStarted;
     const cycles = progressed ? 0 : goal.noProgressCycles + 1;
     cycleStarted = Date.now();
-    const next = change(goal, { noProgressCycles: cycles });
+    const blockerCycles = countBlockerCycles(goal, progressed);
+
+    const next = change(goal, {
+      blockerCycles,
+      cycleBlocker: goal.blocker,
+      noProgressCycles: cycles,
+    });
 
     if (cycles >= 3) {
       change(next, {
         reason:
-          goal.blocker ?? "Three consecutive cycles made no concrete progress.",
-        status: "blocked",
+          blockerCycles >= 3
+            ? goal.blocker
+            : "Three cycles made no concrete progress. Review the next action before resuming.",
+        status: blockerCycles >= 3 ? "blocked" : "paused",
       });
 
       return { continue: false };
