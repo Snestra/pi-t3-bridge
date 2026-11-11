@@ -38,7 +38,7 @@ The package is only on GitHub, not on npm. Install it with Pi:
 pi install git:github.com/Snestra/pi-t3-bridge
 ```
 
-Pi clones the repository, installs its dependencies, and loads every extension in the package on the next start. `pi update --extensions` moves the clone to the newest commit on `main`. To stay on a release instead, add its tag, e.g. `git:github.com/Snestra/pi-t3-bridge@v0.9.1`. To try the package for one session without saving it to your settings, run `pi -e git:github.com/Snestra/pi-t3-bridge`.
+Pi clones the repository, installs its dependencies, and loads every extension in the package on the next start. `pi update --extensions` moves the clone to the newest commit on `main`. To stay on a release instead, add its tag, e.g. `git:github.com/Snestra/pi-t3-bridge@v0.10.0`. To try the package for one session without saving it to your settings, run `pi -e git:github.com/Snestra/pi-t3-bridge`.
 
 If you installed the old npm package, swap it for the git one:
 
@@ -52,7 +52,7 @@ pi install git:github.com/Snestra/pi-t3-bridge
 You can install a signed archive instead of the git package. You need [Packslip](https://packslip.dev/docs/install/), the GitHub CLI, and `jq`. Run these commands in an empty directory:
 
 ```bash
-version=0.9.1
+version=0.10.0
 tag="v$version"
 archive="pi-t3-bridge-$version.tar.gz"
 install_dir="$HOME/.local/share/pi-t3-bridge/$version"
@@ -131,6 +131,8 @@ The bridge gives Pi the tools and commands that T3 Code expects, and it shows th
 | `/goal <objective>` | Starts a new goal when no unfinished goal exists. |
 | `/goal -- <objective>` | Starts a goal whose first word is `edit`, `pause`, `resume`, or `clear`. |
 | `/goal edit <objective>` | Changes an unfinished goal and invalidates its old completion evidence. |
+| `/goal approve` | Approves the current acceptance conditions. |
+| `/goal review` | Reviews evidence for conditions that need human judgment. |
 | `/goal pause` | Saves paused state before aborting goal work. |
 | `/goal resume` | Activates a paused or blocked goal. Repeating the command does not start duplicate work. |
 | `/goal clear` | Clears the goal and stops its work without deleting conversation history. |
@@ -148,11 +150,11 @@ any state
   /goal clear               no goal
 ```
 
-Goals live in `pi-t3-goal` session entries, not a machine-wide database. Each snapshot stores `version: 1` and either `goal: null` or an objective with its ID, revision, status, reason, and evidence. Loading, reloading, cloning, or navigating a session pauses a restored active goal. Compaction preserves the current state. Only an explicit resume command reactivates a paused goal.
+Goals live in `pi-t3-goal` session entries, not a machine-wide database. Each snapshot stores `version: 2` and either `goal: null` or an objective with its ID, revision, status, reason, and evidence. Loading, reloading, cloning, or navigating a session pauses a restored active goal. Compaction preserves the current state. Only an explicit resume command reactivates a paused goal.
 
 Approval gates, unanswered questions, and pending children hold automatic continuation. A question dismissal or timeout needs a new user answer. A child wake or account recovery does not count as that answer.
 
-`update_goal` requires `goalId`, `revision`, `status`, `reason`, and `evidence`. The model can set only `complete` or `blocked` on an active goal. Completion requires evidence records with `requirement`, `source`, and `result`. A blocker requires a reason. The model is instructed to wait for three consecutive cycles with the same blocker. Runtime failures can stop work immediately.
+`update_goal` requires `goalId`, `revision`, `status`, `reason`, and `evidence`, and accepts `conditions` and `nextAction`. The model can report progress with `active`, or request `complete` or `blocked` for an active goal. Evidence records contain `kind`, `modifiedAt`, `observedAt`, `path`, `requirement`, `result`, `review`, `revision`, and `source`. Completion requires approved acceptance conditions and current evidence. A blocker requires a reason. The model is instructed to wait for three consecutive cycles with the same blocker. Runtime failures can stop work immediately.
 
 The bridge rejects stale updates and incompatible goal tools. Account recovery records the failed run's goal identity and revision, so an old recovery cannot reactivate an edited, paused, completed, or cleared goal. Invalid saved goal data disables goal work until `/goal clear`.
 
@@ -162,7 +164,7 @@ Evidence records make completion inspectable. They do not prove that an arbitrar
 
 T3's own Plan mode does nothing in a Pi thread. T3 sends Pi only the runtime mode, not the Plan setting, and a native plan card would need a change to T3's Pi adapter. Use the `plan` tool instead.
 
-When a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide. The agent asks for approval with the `plan` tool whenever a task calls for a plan. If the card fails to show, the gate opens again, so a lost card never leaves the thread blocked.
+When a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide. The agent asks for approval with the `plan` tool whenever a task calls for a plan. If card rendering or selection throws, the gate opens again. If inline rendering is unavailable, the plan appears in the selection dialog and still waits for your answer.
 
 ```mermaid
 stateDiagram-v2

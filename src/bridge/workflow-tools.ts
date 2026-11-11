@@ -19,6 +19,7 @@ import {
 } from "@earendil-works/pi-schema";
 
 import { registerUnlessTaken } from "./claim.ts";
+import { readGoal } from "./goal.ts";
 import { findT3Tool, taskOutcome, validateTaskTarget } from "./t3-tasks.ts";
 import { observeWorkflowChild } from "./workflow-execution.ts";
 import { workflowTargetSchema } from "./workflow-schema.ts";
@@ -155,7 +156,20 @@ export const registerWorkflowTools = (
         _signal,
         _update,
         ctx
-      ) => result(await store.create(ctx, params)),
+      ) => {
+        // A workflow that names a goal runs only while that goal is the saved
+        // one, so an unknown ID would fail at its first step instead of here.
+        if (
+          params.goalId !== undefined &&
+          readGoal(ctx)?.id !== params.goalId
+        ) {
+          throw new Error(
+            `Goal ${params.goalId} is not the saved goal. Omit goalId or read get_goal for the current ID.`
+          );
+        }
+
+        return result(await store.create(ctx, params));
+      },
       label: "Create workflow",
       name: "create_workflow",
       parameters: obj({
@@ -170,6 +184,7 @@ export const registerWorkflowTools = (
   registerUnlessTaken(
     pi,
     defineTool({
+      annotations: { readOnlyHint: true },
       description: "Read a workflow.",
       execute: async (
         _call,

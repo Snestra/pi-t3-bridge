@@ -1,6 +1,6 @@
 # Change log
 
-## Unreleased
+## 0.10.0, 11 November 2026
 
 `/goal <objective>` saves one objective on the session branch and keeps the agent working until it reports completion with evidence, or a blocker. `get_goal` and `update_goal` let the agent read and report on it. The README section "Saved goals" lists the commands.
 
@@ -10,7 +10,7 @@ Two fixed reply checks replace them. A reply that hits the output limit still co
 
 The README now says that T3's own Plan mode does nothing in a Pi thread, because T3 doesn't send the Plan setting to Pi.
 
-The plan gate no longer has a Plan mode state that nothing set. The `plan` tool works as before, and when its card fails to show, the gate opens again instead of blocking write tools until the next plan.
+The plan gate no longer has a Plan mode state that nothing set. The `plan` tool works as before, and when card rendering or selection throws, the gate opens again instead of blocking write tools until the next plan. If inline rendering is unavailable, the selection dialog shows the plan and waits for an answer.
 
 These problems are fixed:
 
@@ -21,8 +21,14 @@ These problems are fixed:
 - Status refreshes for Pi in a terminal could overlap and reconnect twice.
 - Two chats that marked model families out at the same moment could lose one of the marks. `accounts.json` is now written under a lock, using the new dependency `proper-lockfile`.
 - A settings file that exists but can't be read, e.g. for lack of permission, was ignored without a warning.
+- Each delegated child left an empty `pi-t3-child-*` folder in the temp directory. The child now removes its own folder when its session ends.
+- A goal sent the model one more copy of its full instruction after every continuation. The model now sees only the current instruction, and older copies in the session show as a one-line note.
+- `create_workflow` accepted a `goalId` that names no saved goal, and the workflow then failed at its first step. It now refuses the ID when it creates the workflow. A workflow without `goalId` works as before.
+- `/goal` with extra spaces before its words showed the goal status instead of running the command.
+- `get_workflow` is marked read-only, so it runs while a plan card waits for an answer.
+- The bundled playbooks named the state folder `pi-t3-bridge`. They now name `pi-t3`, where the bridge keeps its state.
 
-`ledger.jsonl` and `steer.jsonl` move their older lines to a `.1` file at 10 MB, so neither grows without limit. The bundled `steer-*.json` and `models.json` files are read once per process instead of on every turn or tool call. The README now asks for Pi 1.5.0, which the package has needed since 0.7.0.
+`ledger.jsonl` moves its older lines to a `.1` file at 10 MB, so it does not grow without limit. The bundled `models.json` file is read once per process instead of on every turn or tool call. The README now asks for Pi 1.5.0, which the package has needed since 0.7.0.
 
 ## 0.9.1, 8 November 2026
 

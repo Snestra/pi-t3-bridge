@@ -1,6 +1,6 @@
 {
   "name": "pi-t3-bridge",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "description": "Pi extension adapter for pstack and tstack inside T3 Code.",
   "keywords": [

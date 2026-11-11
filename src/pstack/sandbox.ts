@@ -1,5 +1,11 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -262,9 +268,24 @@ export const chooseSandbox = async (
 
   const env = await childEnv(workdir);
 
-  prepareBinds(gitDir, env.pnpmStore);
+  try {
+    prepareBinds(gitDir, env.pnpmStore);
+  } catch (error) {
+    rmSync(env.runtimeDir, { force: true, recursive: true });
+
+    throw error;
+  }
 
   return { bwrap, env, kind: "bubblewrap" };
+};
+
+// Removes the runtime directory chooseSandbox made for this child. Pi calls
+// session_shutdown once the child's session ends, so no command of this child
+// still needs it.
+export const releaseSandbox = (sandbox: Sandbox | undefined): void => {
+  if (sandbox !== undefined && sandbox.kind !== "unavailable") {
+    rmSync(sandbox.env.runtimeDir, { force: true, recursive: true });
+  }
 };
 
 // pnpm 12 takes its store lock in $XDG_RUNTIME_DIR, which the sandbox keeps
