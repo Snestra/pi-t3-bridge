@@ -12,10 +12,12 @@ export interface WorkflowOwner {
   sessionId: string;
   branchId: string;
 }
+
 export interface WorkflowExecutor {
   kind: "local" | "delegated";
   isolation: "shared" | "worktree" | "read-only";
 }
+
 export interface WorkflowResult {
   summary: string;
   evidence: Record<string, string>;
@@ -25,6 +27,7 @@ export interface WorkflowResult {
   integration: "not_required" | "unintegrated" | "integrated";
   integrationEvidence?: { stepId: string; evidence: string };
 }
+
 export interface WorkflowAttempt {
   requestId: string;
   launch: "intent" | "unknown" | "started" | "not_started";
@@ -33,6 +36,7 @@ export interface WorkflowAttempt {
   childTerminal?: "succeeded" | "failed" | "cancelled";
   result?: WorkflowResult;
 }
+
 export interface WorkflowStep {
   id: string;
   purpose: string;
@@ -43,6 +47,7 @@ export interface WorkflowStep {
   blocked?: { kind: "dependency" | "decision"; id: string };
   attempts: WorkflowAttempt[];
 }
+
 export interface Workflow {
   version: 1;
   id: string;
@@ -53,6 +58,7 @@ export interface Workflow {
   maxAttempts: number;
   steps: WorkflowStep[];
 }
+
 export type WorkflowDefinition = Omit<
   Workflow,
   "version" | "revision" | "steps"
@@ -76,6 +82,7 @@ function refresh(workflow: Workflow): void {
     if (step.state !== "pending" && step.state !== "ready") {
       continue;
     }
+
     const dependency = step.dependencies
       .map((id) => workflow.steps.find((item) => item.id === id)!)
       .find(
@@ -83,6 +90,7 @@ function refresh(workflow: Workflow): void {
           item.state !== "succeeded" ||
           item.attempts.at(-1)?.result?.integration === "unintegrated"
       );
+
     step.state = dependency ? "pending" : "ready";
     step.blocked = dependency
       ? { id: dependency.id, kind: "dependency" }
@@ -132,12 +140,14 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
     if (visited.has(id)) {
       return;
     }
+
     visiting.add(id);
 
     for (const dependency of definition.steps.find((step) => step.id === id)!
       .dependencies) {
       visit(dependency);
     }
+
     visiting.delete(id);
     visited.add(id);
   };
@@ -145,16 +155,18 @@ export function createWorkflow(definition: WorkflowDefinition): Workflow {
   for (const id of ids) {
     visit(id);
   }
+
   const workflow: Workflow = {
     ...structuredClone(definition),
     revision: 0,
     steps: definition.steps.map((step) => ({
       ...structuredClone(step),
-      state: "pending",
       attempts: [],
+      state: "pending",
     })),
     version: 1,
   };
+
   refresh(workflow);
 
   return workflow;
@@ -204,6 +216,7 @@ export function launchWorkflowStep(
       step.attempts.length < copy.maxAttempts,
       "Attempt limit reached"
     );
+
     const active = copy.steps.filter(
       (item) =>
         item.state === "running" ||
@@ -211,6 +224,7 @@ export function launchWorkflowStep(
         (item.state === "waiting_for_user" &&
           item.attempts.at(-1)?.launch === "unknown")
     );
+
     requireValue(active.length < copy.concurrency, "Concurrency limit reached");
     requireValue(
       step.executor.isolation !== "shared" ||
@@ -327,9 +341,11 @@ export function finishWorkflowStep(
         "All acceptance conditions need evidence"
       );
     }
+
     if (step.executor.kind === "delegated") {
       requireValue(
-        childStatus !== undefined && childStatus.taskId === attempt.childTaskId &&
+        childStatus !== undefined &&
+          childStatus.taskId === attempt.childTaskId &&
           childStatus.hasPendingChildRuns === false &&
           childStatus.workState !== "waiting_for_children" &&
           childStatus.status ===
@@ -363,9 +379,11 @@ export function integrateWorkflowStep(
       step.state === "succeeded" && result?.integration === "unintegrated",
       "No successful worktree output to integrate"
     );
+
     const integrationStep = workflow.steps.find(
       (item) => item.id === integrationStepId
     );
+
     requireValue(
       integrationStepId !== stepId &&
         integrationStep?.state === "succeeded" &&
