@@ -6,7 +6,6 @@ import { compile, obj, str } from "@earendil-works/pi-schema";
 import { Marked } from "marked";
 import { render } from "pele";
 
-import type { GoalAcceptanceSnapshot } from "./goal.ts";
 import { findT3Tool } from "./t3-tasks.ts";
 import type { GoalExecutionState } from "./t3-tasks.ts";
 import type { TaskStatus } from "./tasks.ts";
@@ -197,7 +196,6 @@ export const taskCard = (list: {
 };
 
 export const goalCard = (goal: {
-  readonly acceptance?: GoalAcceptanceSnapshot;
   readonly objective: string;
   readonly status: string;
   readonly revision: number;
@@ -253,10 +251,9 @@ export const goalCard = (goal: {
       ${goal.reason ? `<p class="attention">${escapeHtml(goal.reason)}</p>` : ""}
       <p>Next action: ${escapeHtml(goal.nextAction ? `${goal.nextAction.tool}: ${goal.nextAction.instruction}` : "None")}</p>
       <details><summary>Acceptance conditions (${goal.conditions.length})</summary>
-      <p>${goal.acceptance ? `Criteria revision ${goal.acceptance.criteriaRevision}. ${goal.acceptance.approved ? "Mapping approved by user." : "Mapping needs approval."}` : "Mapping approval not supplied."}</p>
-      <p class="metadata">Approval covers the mapping from the original objective to these conditions. Evidence must still satisfy each condition.</p>
+      <p class="metadata">Evidence must satisfy each condition.</p>
       <ul>${goal.conditions.map((condition) => `<li><code>${escapeHtml(condition.id)}</code><p>${escapeHtml(condition.text)}</p></li>`).join("")}</ul>
-      ${goal.acceptance ? `<pre>${escapeHtml(JSON.stringify(goal.acceptance.conditions, null, 2))}</pre>` : ""}</details>
+</details>
       <details><summary>Linked evidence (${goal.evidence.length})</summary>
       <p class="metadata">These are recorded evidence entries, not a claim that every condition has passed.</p>
       ${goal.evidence.map((item) => `<details><summary>${escapeHtml(item.requirement)} · ${escapeHtml(item.kind)}</summary><p class="metadata">Revision ${item.revision} · ${escapeHtml(new Date(item.observedAt).toISOString())}</p><p>${escapeHtml(item.source)}</p><pre>${escapeHtml(item.result)}</pre></details>`).join("")}</details>

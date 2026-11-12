@@ -190,15 +190,13 @@ any state
 | `/goal <objective>` | Starts a goal when no unfinished goal exists. |
 | `/goal -- <objective>` | Starts a goal whose first word is a command word, e.g. `edit`. |
 | `/goal edit <objective>` | Changes an unfinished goal, and drops its old evidence. |
-| `/goal approve` | Approves the acceptance conditions the agent proposed. |
-| `/goal review` | Lets you judge evidence for conditions that no command can check. |
 | `/goal pause`, `/goal resume`, `/goal clear` | Pause, restart, or remove the goal. |
 
-The agent proposes acceptance conditions, and each condition may name a command and its exit code, or a file and the text it must contain. After you approve the conditions, the bridge runs those checks itself when the agent reports completion. A condition with no check waits for `/goal review`.
+The agent proposes acceptance conditions, and each condition may name a command and its exit code, or a file and the text it must contain. When the agent reports completion, the bridge checks each one against fresh evidence. Like Codex, the goal never waits for your approval, and only you pause it. The agent marks it blocked after the same blocker stops it three cycles running.
 
 ```text
 update_goal(status: complete)
-  if conditions are not approved            refuse
+  if there are no conditions                refuse
   if a question, approval, child, or linked workflow is pending   refuse
   if the files changed since the evidence   refuse, gather fresh evidence
   run each command and file check
