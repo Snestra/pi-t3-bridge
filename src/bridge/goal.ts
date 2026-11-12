@@ -192,6 +192,9 @@ const OutputSchema = obj({
 const GetSchema = obj({});
 const getInput = compile(GetSchema);
 
+const CreateSchema = obj({ objective: TEXT });
+const createInput = compile(CreateSchema);
+
 const UpdateSchema = obj({
   conditions: opt(arr(CONDITION)),
   evidence: EVIDENCE,
@@ -1123,6 +1126,74 @@ export const registerGoal = (
     start(ctx, goal);
   };
 
+  // `/goal <objective>` and create_goal both start here. Starting during a
+  // tool call only claims the run, and the context hook then adds the goal
+  // instruction to the same run.
+  const createGoal = async (
+    ctx: ExtensionContext,
+    objective: string
+  ): Promise<void> => {
+    const goal = readGoal(ctx);
+
+    if (goal !== null && goal.status !== "complete") {
+      throw new Error(
+        "Use /goal edit or /goal clear before replacing an unfinished goal."
+      );
+    }
+
+    activate(ctx, {
+      blocker: null,
+      blockerCycles: 0,
+      conditions: [],
+      cycleBlocker: null,
+      evidence: [],
+      id: randomUUID(),
+      nextAction: {
+        instruction:
+          "Read the full objective and identify the first concrete action.",
+        tool: "get_goal",
+      },
+      noProgressCycles: 0,
+      objective,
+      progressAt: 0,
+      progressRequirements: [],
+      reason: null,
+      requirementRevision: 1,
+      revision: 1,
+      status: "active",
+      workspace: await workspaceState(ctx),
+    });
+  };
+
+  registerUnlessTaken(
+    pi,
+    defineTool({
+      description:
+        "Start a goal only when the user, or a skill the user invoked, asks for one. Do not infer goals from ordinary tasks. Fails if an unfinished goal exists. Then propose command or file conditions with update_goal.",
+      execute: async (_id, params, _signal, _update, ctx) => {
+        if (!toolsOwned() || !createInput.check(params)) {
+          throw new Error(REJECTED_UPDATE);
+        }
+
+        await createGoal(ctx, params.objective);
+
+        return goalResult(readGoal(ctx));
+      },
+      executionMode: "sequential",
+      label: "Create goal",
+      name: "create_goal",
+      outputSchema: OutputSchema,
+      parameters: CreateSchema,
+      prepareArguments: (args) => {
+        if (!createInput.check(args)) {
+          throw new Error(REJECTED_UPDATE);
+        }
+
+        return args;
+      },
+    })
+  );
+
   const pauseGoal = async (
     ctx: ExtensionCommandContext,
     goal: Goal,
@@ -1173,34 +1244,7 @@ export const registerGoal = (
     }
 
     if (command.kind === "create") {
-      if (goal !== null && goal.status !== "complete") {
-        throw new Error(
-          "Use /goal edit or /goal clear before replacing an unfinished goal."
-        );
-      }
-
-      activate(ctx, {
-        blocker: null,
-        blockerCycles: 0,
-        conditions: [],
-        cycleBlocker: null,
-        evidence: [],
-        id: randomUUID(),
-        nextAction: {
-          instruction:
-            "Read the full objective and identify the first concrete action.",
-          tool: "get_goal",
-        },
-        noProgressCycles: 0,
-        objective: command.objective,
-        progressAt: 0,
-        progressRequirements: [],
-        reason: null,
-        requirementRevision: 1,
-        revision: 1,
-        status: "active",
-        workspace: await workspaceState(ctx),
-      });
+      await createGoal(ctx, command.objective);
 
       return;
     }
@@ -1467,7 +1511,7 @@ export const registerGoal = (
 
     if (
       current &&
-      !["get_goal", "update_goal"].includes(event.toolName) &&
+      !["create_goal", "get_goal", "update_goal"].includes(event.toolName) &&
       !isT3Tool(event.toolName, "html_render")
     ) {
       const fact = await observedFact(ctx, current, event);

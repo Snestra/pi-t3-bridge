@@ -13,6 +13,10 @@ These problems are fixed:
 
 `council` now asks for three model families rather than three providers, so one provider that serves Claude, GPT and Gemini models is enough. The `poteto-help`, `setup-pstack` and `automate-me` skills now give Pi install steps, `/skill:<name>` names and the `ask` tool. Unused exports are gone from the bridge.
 
+A new extension, `bstack.ts`, serves the `ship` skill. Say "ship it" and the agent takes the change to a green commit on main: it runs the repo's CI commands locally, pushes without force, watches CI on main, and reverts its own commit if CI fails. It is tstack's `full-send` without the branch, PR, `sol-loop` and `council`, and it files a PR only when the branch is protected or you ask.
+
+A new tool, `create_goal`, lets the agent start a goal when you or a skill you invoked asks for one, as in Codex. `/goal <objective>` works as before.
+
 `/goal approve` and `/goal review` are gone. A goal completes as soon as fresh evidence matches every condition the agent proposed, so it never waits for you, as in Codex. A goal also no longer pauses itself after three cycles with no new evidence. It stops only when you pause it or when the same blocker stops the agent three cycles running.
 
 ## 0.10.1, 11 November 2026

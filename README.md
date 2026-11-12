@@ -1,6 +1,6 @@
 # pi-t3-bridge
 
-pi-t3-bridge is a [Pi](https://pi.dev) package that runs Pi as an agent inside [T3 Code](https://github.com/pingdotgg/t3code). It gives a Pi thread the tools T3 expects, and it adds two skill sets, pstack and tstack, so the thread can plan work, hand parts of it to other models, and check what comes back.
+pi-t3-bridge is a [Pi](https://pi.dev) package that runs Pi as an agent inside [T3 Code](https://github.com/pingdotgg/t3code). It gives a Pi thread the tools T3 expects, and it adds three skill sets, pstack, tstack and bstack, so the thread can plan work, hand parts of it to other models, and check what comes back.
 
 ```mermaid
 flowchart LR
@@ -10,8 +10,9 @@ flowchart LR
         Bridge[bridge.ts<br/>cards, goals, workflows, limits]
         Pstack[pstack.ts<br/>pstack skills, model routing, child sandbox]
         Tstack[tstack.ts<br/>tstack skills]
+        Bstack[bstack.ts<br/>ship skill]
     end
-    Pi --> Bridge & Pstack & Tstack
+    Pi --> Bridge & Pstack & Tstack & Bstack
     Bridge -->|MCP| T3
     Pstack -->|delegate_task| T3
     T3 -->|child threads| Models[Claude, GPT, and other models]
@@ -35,7 +36,7 @@ pi -e git:github.com/Snestra/pi-t3-bridge               # one session, nothing s
 
 `pi update --extensions` moves an install from `main` to the newest commit. If you still have the old npm package, run `pi remove npm:pi-t3-bridge` before you install from git.
 
-Each of the three extensions works on its own, so you can load only the ones you want.
+Each of the four extensions works on its own, so you can load only the ones you want.
 
 ```json
 {
@@ -55,11 +56,13 @@ pi-t3-bridge/
 ├── bridge.ts       # connects Pi to T3 Code
 ├── pstack.ts       # serves pstack skills and picks models for subagents
 ├── tstack.ts       # serves tstack skills
+├── bstack.ts       # serves the bstack ship skill
 ├── src/bridge/     # code for bridge.ts
 ├── src/pstack/     # code for pstack.ts, including the child sandbox
 ├── pstack/         # upstream pstack skills, agents, and model defaults
 ├── overlay/        # the changes Pi needs on top of pstack/
-└── tstack/         # Theo Browne's tstack skills
+├── tstack/         # Theo Browne's tstack skills
+└── bstack/         # ship, full-send cut down to a push to main
 ```
 
 ## Tools and commands
@@ -74,6 +77,7 @@ The bridge adds the tools and commands below, and T3 shows most of them as cards
 | `create_workflow`, `get_workflow` | Save and read a workflow of steps with dependencies and acceptance checks. |
 | `launch_workflow_step`, `reconcile_workflow_step` | Start a delegated step in T3, and settle a launch whose result is unknown. |
 | `transition_workflow` | Starts, finishes, retries, or cancels a step, holds a local step for your decision, or records that a worktree step was merged. |
+| `create_goal` | Starts a goal when you or a skill you invoked asks for one, as in Codex. |
 | `get_goal`, `update_goal` | Read the saved goal, and report completion or a blocker with evidence. |
 | `transcript` | Returns the session file and session ID. |
 | `pstack_model` | Picks the model for a subagent. It comes from `pstack.ts`. |
@@ -355,6 +359,20 @@ Chrome and Electron need `--no-sandbox` inside the child, and a `pi` run inside 
 ## The tstack extension
 
 The tstack extension serves Theo Browne's skills from `tstack/skills`. They cover the PR cycle, from `file-pr` through `babysit-pr`, plus `council`, `sol-loop`, `full-send`, `full-stop`, `takeover`, `modernize`, and `leaving-pr-comments`.
+
+## The bstack extension
+
+The bstack extension serves one skill, `ship`, which you start by saying "ship it". It is tstack's `full-send` with steps cut. One lead model does the work and commits to the default branch, with no PR, `sol-loop` or `council`.
+
+```text
+finish the change and prove it
+run the CI config's commands locally
+git pull --rebase, then git push origin HEAD:main   # never force
+gh run watch on main
+  red  -> git revert, push, fix forward
+```
+
+It still files a PR when you ask for one, when the branch is protected, when you can't push, when the repo requires PRs, or when a push to main deploys to users.
 
 ## Settings and files
 

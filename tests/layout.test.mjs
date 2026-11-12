@@ -99,6 +99,7 @@ test("the bridge loads and registers its tools with no pstack files", async () =
 
       assert.deepEqual(tools, [
         "ask",
+        "create_goal",
         "create_workflow",
         "get_goal",
         "get_workflow",
