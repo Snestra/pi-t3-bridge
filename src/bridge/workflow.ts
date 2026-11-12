@@ -26,7 +26,7 @@ export interface WorkflowOwner {
 
 export interface WorkflowExecutor {
   kind: "local" | "delegated";
-  isolation: "shared" | "worktree" | "read-only";
+  isolation: "shared" | "worktree";
 }
 
 export interface WorkflowResult {

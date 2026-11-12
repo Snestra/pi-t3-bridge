@@ -80,7 +80,7 @@ export const workflowSchema = obj({
       blocked: opt(obj({ id, kind: oneOf(["dependency", "decision"]) })),
       dependencies: arr(id),
       executor: obj({
-        isolation: oneOf(["shared", "worktree", "read-only"]),
+        isolation: oneOf(["shared", "worktree"]),
         kind: oneOf(["local", "delegated"]),
       }),
       id,

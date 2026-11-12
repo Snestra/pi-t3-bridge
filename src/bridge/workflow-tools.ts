@@ -10,11 +10,13 @@ import {
   bool,
   compile,
   int,
+  lit,
   nullable,
   obj,
   oneOf,
   opt,
   str,
+  union,
   unknown,
 } from "@earendil-works/pi-schema";
 
@@ -92,10 +94,12 @@ const result = (value: Workflow) => ({
 const stepSchema = obj({
   acceptance: arr(id),
   dependencies: arr(id),
-  executor: obj({
-    isolation: oneOf(["shared", "worktree", "read-only"]),
-    kind: oneOf(["local", "delegated"]),
-  }),
+  // Local steps run in the parent's own checkout, so only delegated steps
+  // can ask for a worktree.
+  executor: union([
+    obj({ isolation: lit("shared"), kind: lit("local") }),
+    obj({ isolation: oneOf(["shared", "worktree"]), kind: lit("delegated") }),
+  ]),
   id,
   integrates: opt(arr(id)),
   purpose: id,
@@ -220,11 +224,7 @@ export const registerWorkflowTools = (
         const current = store.read(ctx, params.workflowId);
         const step = current?.steps.find((s) => s.id === params.stepId);
 
-        if (
-          !step ||
-          step.executor.kind !== "delegated" ||
-          step.executor.isolation === "read-only"
-        ) {
+        if (step?.executor.kind !== "delegated") {
           throw new Error("A delegated shared or worktree step is required");
         }
 

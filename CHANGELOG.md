@@ -1,5 +1,13 @@
 # Change log
 
+## Unreleased
+
+These problems are fixed:
+
+- `pi -p "/goal <objective>"` saved the goal and exited before the goal's run reached the model. In print and JSON modes, `/goal` now waits until that run ends.
+- `create_workflow` offered `read-only` isolation, which every step then refused, and let a local step ask for a worktree. Its schema now allows only local steps with `shared` isolation and delegated steps with `shared` or `worktree` isolation.
+- A child session that ended without `session_shutdown`, such as an SDK `session.dispose()`, left its `pi-t3-child-*` folder in the temp directory. Pi now removes any such folder when its process exits.
+
 ## 0.10.0, 11 November 2026
 
 `/goal <objective>` saves one objective on the session branch and keeps the agent working until it reports completion with evidence, or a blocker. `get_goal` and `update_goal` let the agent read and report on it. The README section "Saved goals" lists the commands.

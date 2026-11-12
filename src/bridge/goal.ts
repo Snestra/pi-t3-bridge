@@ -1471,6 +1471,12 @@ export const registerGoal = (
         if (args.trim() || !ctx.hasUI) {
           await applyCommand(parseCommand(args.trim()), ctx);
 
+          // Print and JSON modes exit once the command handler returns, so
+          // the goal run it started would never reach the model.
+          if (!ctx.hasUI) {
+            await ctx.waitForIdle();
+          }
+
           return;
         }
 
