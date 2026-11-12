@@ -68,19 +68,6 @@ const CONDITION = obj({
   text: TEXT,
 });
 
-const CRITERIA_ENTRY = "pi-t3-goal-criteria";
-
-const criteriaInput = compile(
-  obj({
-    at: int({ minimum: 0 }),
-    conditions: arr(CONDITION),
-    criteriaRevision: REVISION,
-    goalId: TEXT,
-    goalRevision: REVISION,
-    objective: TEXT,
-  })
-);
-
 const ACTION = obj({ instruction: TEXT, tool: TEXT });
 
 const EVIDENCE = arr(
@@ -106,19 +93,6 @@ const EVIDENCE = arr(
 );
 
 const FACT_ENTRY = "pi-t3-goal-fact";
-const REVIEW_ENTRY = "pi-t3-goal-review";
-
-const reviewInput = compile(
-  obj({
-    at: int({ minimum: 0 }),
-    conditions: arr(CONDITION),
-    evidence: EVIDENCE,
-    goalId: TEXT,
-    goalRevision: REVISION,
-    objective: TEXT,
-    revision: REVISION,
-  })
-);
 
 const FactSchema = obj({
   at: int({ minimum: 0 }),
@@ -142,6 +116,8 @@ const GoalSchema = obj({
   blocker: nullable(TEXT),
   blockerCycles: opt(int({ minimum: 0 })),
   conditions: arr(CONDITION),
+  // Saved by releases that asked the user to approve conditions. Nothing
+  // reads it now, and it stays here so those goals still load.
   criteriaRevision: opt(REVISION),
   cycleBlocker: opt(nullable(TEXT)),
   evidence: EVIDENCE,
@@ -166,7 +142,6 @@ const GoalSchema = obj({
 
 export type Goal = Static<typeof GoalSchema> & {
   blockerCycles: number;
-  criteriaRevision: number;
   cycleBlocker: string | null;
   progressRequirements: string[];
 };
@@ -263,7 +238,6 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
         blocker: null,
         blockerCycles: 0,
         conditions: [],
-        criteriaRevision: 1,
         cycleBlocker: null,
         evidence: [],
         nextAction: {
@@ -298,7 +272,6 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
     : {
         ...goal,
         blockerCycles: goal.blockerCycles ?? 0,
-        criteriaRevision: goal.criteriaRevision ?? 1,
         cycleBlocker: goal.cycleBlocker ?? null,
         progressRequirements: goal.progressRequirements ?? [],
       };
@@ -437,58 +410,6 @@ const validateClaim = (
   }
 };
 
-const reviewed = (
-  ctx: ExtensionContext,
-  goal: Goal,
-  item: Goal["evidence"][number]
-): boolean =>
-  ctx.sessionManager
-    .getBranch()
-    .some(
-      (entry) =>
-        entry.type === "custom" &&
-        entry.customType === REVIEW_ENTRY &&
-        reviewInput.check(entry.data) &&
-        entry.data.goalId === goal.id &&
-        entry.data.revision === goal.requirementRevision &&
-        entry.data.goalRevision === goal.revision &&
-        entry.data.objective === goal.objective &&
-        JSON.stringify(entry.data.conditions) ===
-          JSON.stringify(goal.conditions) &&
-        entry.data.evidence.some(
-          (approved) => JSON.stringify(approved) === JSON.stringify(item)
-        )
-    );
-
-export interface GoalAcceptanceSnapshot {
-  readonly approved: boolean;
-  readonly criteriaRevision: number;
-  readonly conditions: Goal["conditions"];
-  readonly objective: string;
-}
-
-export const goalAcceptanceSnapshot = (
-  ctx: ExtensionContext,
-  goal: Goal
-): GoalAcceptanceSnapshot => ({
-  approved: ctx.sessionManager
-    .getBranch()
-    .some(
-      (entry) =>
-        entry.type === "custom" &&
-        entry.customType === CRITERIA_ENTRY &&
-        criteriaInput.check(entry.data) &&
-        entry.data.goalId === goal.id &&
-        entry.data.criteriaRevision === goal.criteriaRevision &&
-        entry.data.objective === goal.objective &&
-        JSON.stringify(entry.data.conditions) ===
-          JSON.stringify(goal.conditions)
-    ),
-  conditions: goal.conditions,
-  criteriaRevision: goal.criteriaRevision,
-  objective: goal.objective,
-});
-
 const matchesPredicate = async (
   ctx: ExtensionContext,
   condition: Goal["conditions"][number],
@@ -529,12 +450,9 @@ const checkAcceptance = async (
   evidence: Goal["evidence"],
   records: Static<typeof FactSchema>[]
 ): Promise<void> => {
-  if (
-    !goalAcceptanceSnapshot(ctx, goal).approved ||
-    goal.conditions.length === 0
-  ) {
+  if (goal.conditions.length === 0) {
     throw new Error(
-      "The full objective and complete criteria mapping need one-time approval with /goal approve."
+      "Propose acceptance conditions that cover the full objective before reporting completion."
     );
   }
 
@@ -553,13 +471,13 @@ const checkAcceptance = async (
                 item,
                 records.find((fact) => fact.id === item.source)
               )
-            : Promise.resolve(reviewed(ctx, goal, item))
+            : Promise.resolve(true)
         )
       );
 
       if (!accepted.some(Boolean)) {
         throw new Error(
-          `Requirement ${condition.id}${condition.predicate ? " needs fresh evidence matching its approved check." : " is a semantic claim. Stage evidence and use /goal review."}`
+          `Requirement ${condition.id} needs fresh evidence${condition.predicate ? " matching its check" : ""}.`
         );
       }
     })
@@ -780,7 +698,7 @@ const countBlockerCycles = (goal: Goal, progressed: boolean): number => {
 };
 
 const instruction = (goal: Goal): string =>
-  `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nAcceptance conditions (agent proposals, never a replacement for the objective):\n${JSON.stringify(goal.conditions)}\nNext action: ${JSON.stringify(goal.nextAction)}\nPropose the complete mapping from the original objective to stable condition IDs and optional exact command or file predicates. The user approves this mapping once with /goal approve; edits invalidate approval. Matching fresh evidence then completes mechanical checks automatically. Conditions without predicates need semantic review. This is user-approved coverage, not a mechanical proof that the criteria capture the prose. Evidence uses condition IDs. Read get_goal for observed fact IDs, timestamps and excerpts. User acceptance review uses /goal review after staging evidence. A successful tool only verifies its observed facts, not the acceptance claim. Use requirementRevision for evidence revision.\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for user approval or an answer stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
+  `Saved goal ${goal.id}, revision ${goal.revision} (${goal.status}).\nObjective:\n${goal.objective}\n\nAcceptance conditions (agent proposals, never a replacement for the objective):\n${JSON.stringify(goal.conditions)}\nNext action: ${JSON.stringify(goal.nextAction)}\nPropose the complete mapping from the original objective to stable condition IDs, with an exact command or file predicate wherever one can check the condition. Fresh evidence that matches every condition completes the goal; no user approval is needed. Evidence uses condition IDs. Read get_goal for observed fact IDs, timestamps and excerpts. A successful tool only verifies its observed facts, not the acceptance claim. Use requirementRevision for evidence revision.\n\nWork on the full objective. Make concrete progress, not repeated status reports. Read get_goal before reporting a result. Audit every requirement against current files, command output, or external state. Only call update_goal with complete when all requirements have current evidence. Report an ordinary blocker with update_goal only after the same blocker prevents progress in three consecutive cycles. A runtime error or waiting for an answer from the user stops work immediately. Never bypass permissions, approval, or delegated-task wait instructions. Do not poll children. Only the user can edit, pause, resume, or clear a goal. A paused, blocked, complete, or cleared goal does not authorize more work.`;
 
 const goalResult = (
   goal: Goal | null,
@@ -796,13 +714,7 @@ const goalResult = (
 type GoalCommand =
   | { readonly kind: "create" | "edit"; readonly objective: string }
   | {
-      readonly kind:
-        | "status"
-        | "pause"
-        | "resume"
-        | "clear"
-        | "review"
-        | "approve";
+      readonly kind: "status" | "pause" | "resume" | "clear";
     };
 
 const parseCommand = (args: string): GoalCommand => {
@@ -824,13 +736,7 @@ const parseCommand = (args: string): GoalCommand => {
     };
   }
 
-  if (
-    word === "pause" ||
-    word === "resume" ||
-    word === "clear" ||
-    word === "review" ||
-    word === "approve"
-  ) {
+  if (word === "pause" || word === "resume" || word === "clear") {
     if (rest) {
       throw new Error("Invalid /goal arguments.");
     }
@@ -1084,7 +990,6 @@ export const registerGoal = (
             ctx,
             goalCard({
               ...goal,
-              acceptance: goalAcceptanceSnapshot(ctx, goal),
               execution: execution.inspectGoal(ctx, identityOf(goal)),
             }),
             goal.id
@@ -1155,7 +1060,6 @@ export const registerGoal = (
           blocker: params.status === "active" ? params.reason : goal.blocker,
           ...blockerTracking(goal, params.reason, progressed),
           conditions,
-          criteriaRevision: goal.criteriaRevision + (changed ? 1 : 0),
           evidence: changed ? [] : params.evidence,
           nextAction:
             params.nextAction === undefined
@@ -1178,7 +1082,6 @@ export const registerGoal = (
           ctx,
           goalCard({
             ...next,
-            acceptance: goalAcceptanceSnapshot(ctx, next),
             execution: execution.inspectGoal(ctx, identityOf(next)),
           }),
           next.id
@@ -1253,112 +1156,6 @@ export const registerGoal = (
     }
   };
 
-  const approveCriteria = async (
-    ctx: ExtensionCommandContext,
-    goal: Goal
-  ): Promise<void> => {
-    if (!ctx.hasUI || goal.conditions.length === 0) {
-      throw new Error(
-        "Propose the complete acceptance criteria before asking for approval in an interactive session."
-      );
-    }
-
-    const approved = await ctx.ui.confirm(
-      "Approve criteria for automatic completion",
-      `Review whether these criteria cover the entire original objective. The bridge checks exact predicates, not whether they fully capture the prose. Criteria without predicates require semantic review. Changed criteria require approval again.\n\n${JSON.stringify({ conditions: goal.conditions, criteriaRevision: goal.criteriaRevision, goalId: goal.id, goalRevision: goal.revision, objective: goal.objective }, null, 2)}`
-    );
-
-    const current = readGoal(ctx);
-
-    if (
-      !approved ||
-      current?.id !== goal.id ||
-      current.revision !== goal.revision
-    ) {
-      throw new Error(
-        "Criteria approval was declined, dismissed, or became stale."
-      );
-    }
-
-    pi.appendEntry(CRITERIA_ENTRY, {
-      at: Date.now(),
-      conditions: goal.conditions,
-      criteriaRevision: goal.criteriaRevision,
-      goalId: goal.id,
-      goalRevision: goal.revision,
-      objective: goal.objective,
-    });
-    describe(ctx, current);
-  };
-
-  const reviewGoal = async (
-    ctx: ExtensionCommandContext,
-    goal: Goal
-  ): Promise<void> => {
-    if (!ctx.hasUI || goal.evidence.length === 0) {
-      throw new Error(
-        "Stage linked evidence before requesting user review in an interactive session."
-      );
-    }
-
-    const current = await refreshWorkspace(ctx, goal);
-
-    if (current.revision !== goal.revision) {
-      throw new Error("Evidence changed. Gather fresh evidence before review.");
-    }
-
-    await validateEvidence(ctx, goal, goal.evidence, false);
-
-    const approved = await ctx.ui.confirm(
-      "Approve acceptance claims",
-      JSON.stringify(
-        {
-          conditions: goal.conditions,
-          evidence: goal.evidence,
-          objective: goal.objective,
-        },
-        null,
-        2
-      )
-    );
-
-    const fresh = await refreshWorkspace(ctx, goal);
-
-    if (!approved || fresh.revision !== goal.revision) {
-      throw new Error(
-        "Acceptance review was not approved or the goal changed."
-      );
-    }
-
-    await validateEvidence(ctx, fresh, goal.evidence, false);
-    const final = readGoal(ctx);
-
-    if (final?.id !== goal.id || final.revision !== goal.revision) {
-      throw new Error("Goal changed during acceptance review.");
-    }
-
-    pi.appendEntry(REVIEW_ENTRY, {
-      at: Date.now(),
-      conditions: goal.conditions,
-      evidence: goal.evidence,
-      goalId: goal.id,
-      goalRevision: goal.revision,
-      objective: goal.objective,
-      revision: goal.requirementRevision,
-    });
-    describe(ctx, fresh);
-  };
-
-  const reviewActions: Partial<
-    Record<
-      GoalCommand["kind"],
-      (ctx: ExtensionCommandContext, goal: Goal) => Promise<void>
-    >
-  > = {
-    approve: approveCriteria,
-    review: reviewGoal,
-  };
-
   const applyCommand = async (
     command: GoalCommand,
     ctx: ExtensionCommandContext
@@ -1386,7 +1183,6 @@ export const registerGoal = (
         blocker: null,
         blockerCycles: 0,
         conditions: [],
-        criteriaRevision: 1,
         cycleBlocker: null,
         evidence: [],
         id: randomUUID(),
@@ -1419,14 +1215,6 @@ export const registerGoal = (
       return;
     }
 
-    const reviewAction = reviewActions[command.kind];
-
-    if (reviewAction) {
-      await reviewAction(ctx, goal);
-
-      return;
-    }
-
     if (["pause", "clear"].includes(command.kind)) {
       await pauseGoal(ctx, goal, command.kind === "clear");
 
@@ -1440,7 +1228,6 @@ export const registerGoal = (
           blocker: null,
           blockerCycles: 0,
           conditions: [],
-          criteriaRevision: goal.criteriaRevision + 1,
           cycleBlocker: null,
           evidence: [],
           noProgressCycles: 0,
@@ -1519,13 +1306,7 @@ export const registerGoal = (
         const choices =
           goal.status === "complete"
             ? ["clear"]
-            : [
-                "approve",
-                "review",
-                "edit",
-                goal.status === "active" ? "pause" : "resume",
-                "clear",
-              ];
+            : ["edit", goal.status === "active" ? "pause" : "resume", "clear"];
 
         const choice = await ctx.ui.select(
           `${goal.objective}\n${goal.status} · Revision ${goal.revision}`,
@@ -1797,14 +1578,10 @@ export const registerGoal = (
       noProgressCycles: cycles,
     });
 
-    if (cycles >= 3) {
-      change(next, {
-        reason:
-          blockerCycles >= 3
-            ? goal.blocker
-            : "Three cycles made no concrete progress. Review the next action before resuming.",
-        status: blockerCycles >= 3 ? "blocked" : "paused",
-      });
+    // Only the same blocker three cycles running stops the goal. A goal with
+    // no new evidence keeps going, as in Codex, and only the user pauses it.
+    if (blockerCycles >= 3) {
+      change(next, { reason: goal.blocker, status: "blocked" });
 
       return { continue: false };
     }

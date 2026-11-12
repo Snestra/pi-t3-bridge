@@ -13,6 +13,8 @@ These problems are fixed:
 
 `council` now asks for three model families rather than three providers, so one provider that serves Claude, GPT and Gemini models is enough. The `poteto-help`, `setup-pstack` and `automate-me` skills now give Pi install steps, `/skill:<name>` names and the `ask` tool. Unused exports are gone from the bridge.
 
+`/goal approve` and `/goal review` are gone. A goal completes as soon as fresh evidence matches every condition the agent proposed, so it never waits for you, as in Codex. A goal also no longer pauses itself after three cycles with no new evidence. It stops only when you pause it or when the same blocker stops the agent three cycles running.
+
 ## 0.10.1, 11 November 2026
 
 The README is rewritten around the features, with a new section on workflows and diagrams in place of long paragraphs. The section on verifying a release archive is gone.
