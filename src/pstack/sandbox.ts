@@ -228,18 +228,35 @@ const prepareBinds = (
 // Runtime directories made in this process and not yet removed. A session
 // that ends without session_shutdown, such as an SDK session.dispose(), would
 // otherwise leave its directory behind, so the rest go when the process exits.
-const runtimeDirs = new Set<string>();
+// Pi loads extensions with jiti's moduleCache off, so each load or /reload
+// runs this module again. The set and its one exit listener live on
+// globalThis, so every copy of the module shares them.
+const RUNTIME_DIRS = Symbol.for("pi-t3-bridge.sandbox.runtimeDirs");
+
+// SAFETY: only this module reads or writes the RUNTIME_DIRS key, and it
+// always stores a Set<string> there.
+const processState = globalThis as { [RUNTIME_DIRS]?: Set<string> };
+
+const createRuntimeDirs = (): Set<string> => {
+  const dirs = new Set<string>();
+
+  process.once("exit", () => {
+    for (const dir of dirs) {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  return dirs;
+};
+
+processState[RUNTIME_DIRS] ??= createRuntimeDirs();
+
+const runtimeDirs = processState[RUNTIME_DIRS];
 
 const removeRuntimeDir = (dir: string): void => {
   rmSync(dir, { force: true, recursive: true });
   runtimeDirs.delete(dir);
 };
-
-process.once("exit", () => {
-  for (const dir of runtimeDirs) {
-    removeRuntimeDir(dir);
-  }
-});
 
 const childEnv = async (workdir: string): Promise<ChildEnv> => {
   const store = await pnpmStore(workdir);
