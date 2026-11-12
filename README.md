@@ -1,96 +1,41 @@
 # pi-t3-bridge
 
-pi-t3-bridge is a [Pi](https://pi.dev) package that lets Pi run as an agent inside [T3 Code](https://github.com/pingdotgg/t3code). It also ships two skill sets, pstack and tstack, so a Pi thread in T3 can plan work, hand parts of it to other models, and check what comes back.
+pi-t3-bridge is a [Pi](https://pi.dev) package that runs Pi as an agent inside [T3 Code](https://github.com/pingdotgg/t3code). It gives a Pi thread the tools T3 expects, and it adds two skill sets, pstack and tstack, so the thread can plan work, hand parts of it to other models, and check what comes back.
 
 ```mermaid
 flowchart LR
-    User((You)) --> T3[T3 Code app]
+    You((You)) --> T3[T3 Code]
     T3 -->|runs a thread| Pi[Pi agent]
     subgraph pkg [pi-t3-bridge]
-        Bridge[bridge.ts<br/>T3 tools, cards, limits]
-        Pstack[pstack.ts<br/>pstack skills, model routing]
+        Bridge[bridge.ts<br/>cards, goals, workflows, limits]
+        Pstack[pstack.ts<br/>pstack skills, model routing, child sandbox]
         Tstack[tstack.ts<br/>tstack skills]
     end
-    Pi --> Bridge
-    Pi --> Pstack
-    Pi --> Tstack
+    Pi --> Bridge & Pstack & Tstack
     Bridge -->|MCP| T3
     Pstack -->|delegate_task| T3
-    T3 -->|child threads| Children[Claude, GPT, and other models]
+    T3 -->|child threads| Models[Claude, GPT, and other models]
 ```
 
 ## Requirements
 
-You need the following programs:
+You need Node.js 22.19.0 or later and Pi 1.5.0 or later. T3 Code is needed only if you run Pi threads inside T3 or call T3 tools from Pi.
 
-- Node.js 22.19.0 or later
-- Pi 1.5.0 or later
-- T3 Code, if you want to run Pi threads inside T3 or call T3 tools from Pi
-- On Linux, the `bubblewrap` package, for the sandbox that delegated children run in
-
-The Ubuntu `bubblewrap` package ships an AppArmor profile that lets `bwrap` run, which we checked on Ubuntu 26.04. If AppArmor still stops `bwrap`, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
+On Linux, delegated children run in a `bwrap` sandbox, so you also need the `bubblewrap` package. If AppArmor stops `bwrap`, run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
 
 ## Install
 
-The package is only on GitHub, not on npm. Install it with Pi:
+The package is on GitHub only, so you install it with Pi from git.
 
 ```bash
-pi install git:github.com/Snestra/pi-t3-bridge
+pi install git:github.com/Snestra/pi-t3-bridge          # newest commit on main
+pi install git:github.com/Snestra/pi-t3-bridge@v0.10.1  # one release
+pi -e git:github.com/Snestra/pi-t3-bridge               # one session, nothing saved
 ```
 
-Pi clones the repository, installs its dependencies, and loads every extension in the package on the next start. `pi update --extensions` moves the clone to the newest commit on `main`. To stay on a release instead, add its tag, e.g. `git:github.com/Snestra/pi-t3-bridge@v0.10.0`. To try the package for one session without saving it to your settings, run `pi -e git:github.com/Snestra/pi-t3-bridge`.
+`pi update --extensions` moves an install from `main` to the newest commit. If you still have the old npm package, run `pi remove npm:pi-t3-bridge` before you install from git.
 
-If you installed the old npm package, swap it for the git one:
-
-```bash
-pi remove npm:pi-t3-bridge
-pi install git:github.com/Snestra/pi-t3-bridge
-```
-
-### Verify a release archive
-
-You can install a signed archive instead of the git package. You need [Packslip](https://packslip.dev/docs/install/), the GitHub CLI, and `jq`. Run these commands in an empty directory:
-
-```bash
-version=0.10.0
-tag="v$version"
-archive="pi-t3-bridge-$version.tar.gz"
-install_dir="$HOME/.local/share/pi-t3-bridge/$version"
-gh release download "$tag" --repo Snestra/pi-t3-bridge --pattern "$archive" --pattern packslip.sigstore.json &&
-packslip verify packslip.sigstore.json \
-  --identity "https://github.com/Snestra/pi-t3-bridge/.github/workflows/packslip-release.yml@refs/tags/$tag" \
-  --issuer https://token.actions.githubusercontent.com \
-  --artifact "$archive" --json > packslip-verified.json &&
-jq -e --arg version "$version" --arg archive "$archive" \
-  '.project == "github.com/Snestra/pi-t3-bridge" and .version == $version and (.checked_artifacts | index($archive) != null)' \
-  packslip-verified.json &&
-mkdir -p "$(dirname "$install_dir")" &&
-mkdir "$install_dir" &&
-tar -xzf "$archive" -C "$install_dir" &&
-(cd "$install_dir/pi-t3-bridge" && npm install --omit=dev --legacy-peer-deps --no-audit --no-fund) &&
-pi install "$install_dir/pi-t3-bridge"
-```
-
-Packslip checks the archive, not the dependencies npm downloads. Pi does not update local packages. To update, verify and install the new archive, then remove the old local package with `pi remove`. Pi treats the new path as a separate package, so it does not show the old path's changelog updates.
-
-## What is in the package
-
-The package has three Pi extensions, and you can turn off any of them. No extension needs another one to be loaded, although `pstack.ts` reuses code from `src/bridge`.
-
-```text
-pi-t3-bridge/
-├── bridge.ts       # connects Pi to T3 Code
-├── pstack.ts       # serves pstack skills and picks models for subagents
-├── tstack.ts       # serves tstack skills
-├── src/
-│   ├── bridge/     # code for bridge.ts
-│   └── pstack/     # code for pstack.ts, including the child sandbox
-├── pstack/         # upstream pstack skills, agents, and model defaults
-├── overlay/        # the changes Pi needs on top of pstack/
-└── tstack/         # Theo Browne's tstack skills
-```
-
-To load only some extensions, list the package in `~/.pi/agent/settings.json` in its object form:
+Each of the three extensions works on its own, so you can load only the ones you want.
 
 ```json
 {
@@ -103,149 +48,241 @@ To load only some extensions, list the package in `~/.pi/agent/settings.json` in
 }
 ```
 
-## The bridge extension
+## What is in the package
 
-The bridge gives Pi the tools and commands that T3 Code expects, and it shows them as cards in the T3 chat. If another installed package already has a tool with the same name, e.g. `ask` from pi-ask, the bridge keeps the other package's tool and tells you once that its own copy is off.
+```text
+pi-t3-bridge/
+├── bridge.ts       # connects Pi to T3 Code
+├── pstack.ts       # serves pstack skills and picks models for subagents
+├── tstack.ts       # serves tstack skills
+├── src/bridge/     # code for bridge.ts
+├── src/pstack/     # code for pstack.ts, including the child sandbox
+├── pstack/         # upstream pstack skills, agents, and model defaults
+├── overlay/        # the changes Pi needs on top of pstack/
+└── tstack/         # Theo Browne's tstack skills
+```
 
-| Name | Kind | What it does |
-| --- | --- | --- |
-| `tasks` | tool | Shows the task list for the run as a card in the chat. |
-| `plan` | tool | Shows a plan card with Approve, Revise, and Cancel buttons. |
-| `ask` | tool | Asks you one or more questions as cards and waits for your answers. |
-| `transcript` | tool | Returns the session file and session ID, for workflows that read the transcript. |
-| `get_goal` | tool | Reads the saved goal, its revision, and its evidence. |
-| `update_goal` | tool | Reports completion or a blocker for the current active goal. |
-| `/goal` | command | Saves, inspects, edits, pauses, resumes, or clears one goal on the current session branch. |
-| `/t3-usage` | command | Shows the cost of the thread and its children, the cache hit rate, and which model families are out of usage. |
-| `/t3-transcript` | command | Records the transcript reference and shows the session file path. |
-| `/t3-exhausted <family> [reset time]` | command | Marks a model family as out of usage for every chat on the machine. |
-| `/t3-recovered <family>` | command | Marks a model family as usable again for every chat on the machine. |
+## Tools and commands
 
-### Saved goals
+The bridge adds the tools and commands below, and T3 shows most of them as cards in the chat. If another package already has a tool with the same name, e.g. `ask` from pi-ask, the bridge keeps the other tool and tells you once.
 
-`/goal <objective>` saves one objective and starts work. The bridge requests another response when the agent stops before completing the objective. Goals have no token or time budget. Existing permissions still apply.
-
-| Command | Result |
+| Name | What it does |
 | --- | --- |
-| `/goal` | Shows the objective, status, and reason without a model request. |
-| `/goal <objective>` | Starts a new goal when no unfinished goal exists. |
-| `/goal -- <objective>` | Starts a goal whose first word is `edit`, `pause`, `resume`, or `clear`. |
-| `/goal edit <objective>` | Changes an unfinished goal and invalidates its old completion evidence. |
-| `/goal approve` | Approves the current acceptance conditions. |
-| `/goal review` | Reviews evidence for conditions that need human judgment. |
-| `/goal pause` | Saves paused state before aborting goal work. |
-| `/goal resume` | Activates a paused or blocked goal. Repeating the command does not start duplicate work. |
-| `/goal clear` | Clears the goal and stops its work without deleting conversation history. |
+| `tasks` | Shows the task list for the run as a card. With `workflowId`, it shows a workflow's steps. |
+| `plan` | Shows a plan card with Approve, Revise, and Cancel buttons. |
+| `ask` | Asks you questions as cards and waits for your answers. |
+| `create_workflow`, `get_workflow` | Save and read a workflow of steps with dependencies and acceptance checks. |
+| `launch_workflow_step`, `reconcile_workflow_step` | Start a delegated step in T3, and settle a launch whose result is unknown. |
+| `transition_workflow` | Starts, finishes, retries, or cancels a step, holds a local step for your decision, or records that a worktree step was merged. |
+| `get_goal`, `update_goal` | Read the saved goal, and report completion or a blocker with evidence. |
+| `transcript` | Returns the session file and session ID. |
+| `pstack_model` | Picks the model for a subagent. It comes from `pstack.ts`. |
+| `/goal` | Saves, shows, edits, pauses, resumes, or clears the session's goal. |
+| `/t3-usage` | Shows the cost of the thread and its children, the cache hit rate, and which model families are out of usage. |
+| `/t3-exhausted <family> [reset time]`, `/t3-recovered <family>` | Mark a model family as out of usage, or usable again, for every chat on the machine. |
+| `/t3-transcript` | Shows the session file path. |
 
-In T3, use **Stop** during work, then send goal commands while the thread is idle. T3 rejects live goal commands before Pi receives them. Pi terminal and direct RPC sessions accept goal commands during work.
+## Workflows
+
+A workflow is a saved list of steps that the agent works through in order, and each step must show evidence before the steps after it can start. The agent creates one with `create_workflow` when a job has parts that depend on each other or that other models should do in parallel.
+
+```text
+create_workflow
+  id: "fix-login"
+  concurrency: 2        # steps that may run at the same time
+  maxAttempts: 2        # tries per step
+  goalId: <optional>    # ties the workflow to the saved goal
+  steps:
+    reproduce   local      shared    acceptance [repro-output]
+    fix-api     delegated  worktree  depends on reproduce   acceptance [tests-pass]
+    fix-ui      delegated  worktree  depends on reproduce   acceptance [screenshot]
+    merge       local      shared    depends on fix-api, fix-ui   integrates fix-api, fix-ui
+```
+
+A step runs either in the parent thread or in a child thread. A local step always works in the parent's own checkout, which the schema calls `shared`. A delegated step runs in a T3 child, either in the same checkout or in its own git worktree.
+
+| Executor | Isolation | How it starts | How it ends |
+| --- | --- | --- | --- |
+| `local` | `shared` | `transition_workflow` with `start` | `transition_workflow` with `finish` and evidence |
+| `delegated` | `shared` or `worktree` | `launch_workflow_step`, which calls T3's `delegate_task` | `transition_workflow` with `finish`, after T3 reports the child done |
+
+### Step states
+
+A step becomes ready only when every step it depends on has succeeded with evidence for each acceptance ID. A worktree step's output must also be merged by a shared step that lists it in `integrates`, unless the step that depends on it is that same shared step.
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> ready: dependencies accepted
+    ready --> running: start or launch
+    running --> waiting_for_child: T3 started the child
+    running --> waiting_for_user: launch result unknown, or local wait
+    waiting_for_user --> running: resume, or reconcile as started
+    waiting_for_user --> failed: reconcile as not started
+    running --> succeeded: finish with evidence
+    waiting_for_child --> succeeded: finish after the child is done
+    running --> failed: finish as failed
+    waiting_for_child --> failed: finish as failed
+    waiting_for_child --> cancelled: cancel the child
+    failed --> pending: retry, if attempts remain
+    ready --> cancelled: cancel before start
+```
+
+### Launch and finish of a delegated step
+
+The bridge records the intent to launch before it calls T3, so a crash between the two calls never leaves a child the workflow does not know about. After a restart, a step with only an intent moves to `waiting_for_user`, and the agent checks T3 and calls `reconcile_workflow_step`.
+
+```mermaid
+sequenceDiagram
+    participant Agent
+    participant Bridge
+    participant T3
+    participant Child
+    Agent->>Bridge: launch_workflow_step(stepId, revision, task)
+    Bridge->>Bridge: save launch intent
+    Bridge->>T3: delegate_task
+    T3->>Child: start
+    Bridge->>Bridge: save child task ID, state waiting_for_child
+    Child-->>T3: final result
+    Agent->>Bridge: transition_workflow(finish, evidence)
+    Bridge->>T3: task_status
+    T3-->>Bridge: completed, no pending work
+    Bridge->>Bridge: save result, state succeeded
+```
+
+The bridge accepts a delegated step as finished only when T3 says the child is done, with no question, approval, or child work still pending. Otherwise `finish` saves the latest child status and leaves the step waiting.
+
+### Rules the bridge enforces
+
+The bridge checks every change against the saved workflow, so two calls can't overwrite each other and a stale plan can't run.
+
+```text
+on(any workflow change)
+  if revision differs from the saved revision      refuse
+  if the workflow belongs to another session or branch   refuse
+  if the workflow names a goal that no longer allows work   refuse
+  if a second shared step would write the checkout   refuse
+  if running steps would exceed concurrency        refuse
+  if the step has used all its attempts            refuse retry
+  save the new workflow and add 1 to revision
+```
+
+Workflows live as `t3.workflow.v1` entries in the session file, so each branch of a session has its own workflows. When a workflow names the saved goal, the goal can't complete until every step of the workflow is accepted, and pausing the goal also cancels the workflow's running children.
+
+## Saved goals
+
+`/goal <objective>` saves one objective on the session branch and starts work on it. When the agent stops before it has finished, the bridge asks it to continue, until the agent reports completion with evidence or reports a blocker.
 
 ```text
 active
-  completion evidence       complete
-  reported blocker          blocked
-  Stop or restored session  paused
+  completion with current evidence   complete
+  the same blocker for 3 cycles      blocked
+  Stop, or a restored session        paused
 paused or blocked
-  /goal resume              active
+  /goal resume                       active
 any state
-  /goal clear               no goal
+  /goal clear                        no goal
 ```
 
-Goals live in `pi-t3-goal` session entries, not a machine-wide database. Each snapshot stores `version: 2` and either `goal: null` or an objective with its ID, revision, status, reason, and evidence. Loading, reloading, cloning, or navigating a session pauses a restored active goal. Compaction preserves the current state. Only an explicit resume command reactivates a paused goal.
+| Command | Result |
+| --- | --- |
+| `/goal` | Shows the objective, status, and reason, without a model request. |
+| `/goal <objective>` | Starts a goal when no unfinished goal exists. |
+| `/goal -- <objective>` | Starts a goal whose first word is a command word, e.g. `edit`. |
+| `/goal edit <objective>` | Changes an unfinished goal, and drops its old evidence. |
+| `/goal approve` | Approves the acceptance conditions the agent proposed. |
+| `/goal review` | Lets you judge evidence for conditions that no command can check. |
+| `/goal pause`, `/goal resume`, `/goal clear` | Pause, restart, or remove the goal. |
 
-Approval gates, unanswered questions, and pending children hold automatic continuation. A question dismissal or timeout needs a new user answer. A child wake or account recovery does not count as that answer.
+The agent proposes acceptance conditions, and each condition may name a command and its exit code, or a file and the text it must contain. After you approve the conditions, the bridge runs those checks itself when the agent reports completion. A condition with no check waits for `/goal review`.
 
-`update_goal` requires `goalId`, `revision`, `status`, `reason`, and `evidence`, and accepts `conditions` and `nextAction`. The model can report progress with `active`, or request `complete` or `blocked` for an active goal. Evidence records contain `kind`, `modifiedAt`, `observedAt`, `path`, `requirement`, `result`, `review`, `revision`, and `source`. Completion requires approved acceptance conditions and current evidence. A blocker requires a reason. The model is instructed to wait for three consecutive cycles with the same blocker. Runtime failures can stop work immediately.
+```text
+update_goal(status: complete)
+  if conditions are not approved            refuse
+  if a question, approval, child, or linked workflow is pending   refuse
+  if the files changed since the evidence   refuse, gather fresh evidence
+  run each command and file check
+  if every condition has current evidence   mark complete
+```
 
-The bridge rejects stale updates and incompatible goal tools. Account recovery records the failed run's goal identity and revision, so an old recovery cannot reactivate an edited, paused, completed, or cleared goal. Invalid saved goal data disables goal work until `/goal clear`.
+In T3, press Stop before you send a goal command, because T3 refuses commands while the thread is busy. In a terminal or over RPC, you can send them at any time. With `pi -p "/goal <objective>"`, Pi waits for the goal's run to end before it exits.
 
-Evidence records make completion inspectable. They do not prove that an arbitrary objective is complete. The feature assumes one Pi process owns the session file and does not promise exactly-once work across crashes. It does not add goal queues, automatic delegation, or model-created goals.
+Goals have no token or time budget, and normal permissions still apply. Opening, reloading, or cloning a session pauses an active goal, so only `/goal resume` starts work again.
 
-### Plan approval
+## Plan approval
 
-T3's own Plan mode does nothing in a Pi thread. T3 sends Pi only the runtime mode, not the Plan setting, and a native plan card would need a change to T3's Pi adapter. Use the `plan` tool instead.
-
-When a plan card waits for your answer, the bridge blocks every tool that can change files. Read-only tools still run, so the agent can keep reading files while you decide. The agent asks for approval with the `plan` tool whenever a task calls for a plan. If card rendering or selection throws, the gate opens again. If inline rendering is unavailable, the plan appears in the selection dialog and still waits for your answer.
+T3's own Plan mode does nothing in a Pi thread, because T3 doesn't send the Plan setting to Pi. The agent uses the `plan` tool instead, and while the plan card waits for you, the bridge blocks every tool that can change files.
 
 ```mermaid
 stateDiagram-v2
     [*] --> open
-    open --> awaiting: agent calls plan
-    awaiting --> approved: you pick Approve
-    awaiting --> revising: you pick Revise
-    awaiting --> cancelled: you pick Cancel
-    revising --> awaiting: agent calls plan again
+    open --> waiting: agent calls plan
+    waiting --> approved: Approve
+    waiting --> revising: Revise
+    waiting --> cancelled: Cancel
+    revising --> waiting: agent calls plan again
     cancelled --> open: you send a new message
     approved --> [*]: write tools run again
 ```
 
-### Calls to T3 from a terminal
+Read-only tools still run while the card waits, so the agent can keep reading files. If the card can't render, the plan appears in a selection dialog instead.
 
-When you run Pi in a terminal instead of a T3 thread, the bridge connects Pi to T3's MCP server, which is the address where T3 Code serves its tools. You can then start threads, send messages to them, and wait on them from the terminal, and the status bar shows whether the connection works.
+## Reply checks
 
-```text
-on(session start)
-  if Pi runs inside a T3 thread
-    use the tools T3 already gives the thread
-  else
-    if the saved token is missing, rejected, or expires within a day
-      sign in with the t3 CLI of the running server, no browser
-      save the token in ~/.local/state/pi-t3/t3-mcp.json
-    connect to http://127.0.0.1:3773/mcp with that token
-    hide the tools that only work inside a T3 thread
-    every 3 seconds, update the status bar
-      "connected, N tools"
-      "offline, start T3 Code"
-      "sign-in failed: <reason>"
-```
-
-The bridge signs in on its own. The T3 CLI makes a one-time pairing code, and T3's sign-in endpoints take that code in place of a browser approval. The token lasts 30 days and has full access, the same as approving in the browser, because anyone who can run the CLI already owns the server. When `mcpUrl` points at a T3 server on another machine, the local CLI can't sign in there, so Pi falls back to `/mcp login t3`.
-
-### Usage limits and resume
-
-The bridge keeps one record of which model families are out of usage, and every Pi session on the machine reads it. When a child fails with a usage limit, the bridge marks the family as out until its reset time, so pstack sends new work to another family.
-
-```mermaid
-sequenceDiagram
-    participant Parent as Parent thread
-    participant Bridge
-    participant T3
-    participant Child as Child thread
-    Parent->>T3: delegate_task (Claude)
-    T3->>Child: start
-    Child-->>T3: usage limit reached
-    T3-->>Bridge: task failed
-    Bridge->>Bridge: mark claude as out until the reset
-    Parent->>T3: delegate_task (next family)
-```
-
-The main thread's own account can also run out, and then the agent can't call any tool. In that case the bridge asks T3 to post a resume message into the thread just after the reset time.
-
-### Shell time limit
-
-The bridge stops any shell command after 300 seconds, in the main thread and in children, so a test suite that hangs holds up the chat for at most 5 minutes. A command can ask for a shorter timeout but not a longer one. You can change the limit with `bashTimeoutSeconds` in the settings file.
-
-### Reply checks
-
-When a run is about to stop, the bridge checks the agent's last reply with two fixed rules. No model judges the reply, so the same reply always gets the same result.
+When a run is about to stop, the bridge checks the last reply with two fixed rules. No model judges the reply, so the same reply always gets the same result.
 
 ```text
 on(run about to stop)
   if the reply hit the output limit
-    add a note and continue, at most twice per prompt
-  else if the reply's last 5 lines of prose ask a question
-      and the ask tool is on, the client can show cards,
-      and the session is not a delegated child
-    add a note that tells the agent to ask it with the ask tool
-    continue once per prompt
+    continue, at most twice per prompt
+  else if the last 5 lines of prose ask a question
+      and the ask tool is on, and the session is not a child
+    tell the agent to ask with the ask tool, once per prompt
 ```
 
-A question typed in plain text ends the run, and nobody answers it. The note sends the agent back to put the same question on an `ask` card, which waits for your answer. The check skips code blocks and inline code, so a `?` in a regex or a shell command doesn't count.
+A question in plain text ends the run, and nobody sees it. The second rule sends the agent back to put the question on an `ask` card, which waits for your answer. Code blocks and inline code don't count, so a `?` in a regex is ignored.
+
+## Usage limits and resume
+
+The bridge keeps one record of which model families are out of usage, and every Pi session on the machine reads it. When a child fails with a usage limit, the bridge marks its family as out until the reset time, and pstack sends new work to another family.
+
+```mermaid
+sequenceDiagram
+    participant Parent
+    participant Bridge
+    participant T3
+    Parent->>T3: delegate_task (Claude)
+    T3-->>Bridge: child failed, usage limit
+    Bridge->>Bridge: mark claude as out until the reset
+    Parent->>T3: delegate_task (next family)
+```
+
+When the main thread's own account runs out, the agent can't call any tool. The bridge then asks T3 to post a resume message into the thread just after the reset time.
+
+## Shell time limit
+
+The bridge stops any shell command after 300 seconds, in the main thread and in children. A command can ask for a shorter limit but not a longer one, and you can change the limit with `bashTimeoutSeconds`.
+
+## T3 tools from a terminal
+
+When you run Pi in a terminal, the bridge connects it to the MCP server of the T3 Code app on your machine, so you can start and message T3 threads from the terminal.
+
+```text
+on(session start)
+  if Pi runs inside a T3 thread
+    use the tools T3 gives the thread
+  else
+    if the saved token is missing or expires within a day
+      sign in with the t3 CLI, no browser needed
+    connect to mcpUrl
+    show "connected, N tools" or the error in the status bar
+```
+
+The token lasts 30 days and is saved in `~/.local/state/pi-t3/t3-mcp.json`. When `mcpUrl` points at a T3 server on another machine, sign in with `/mcp login t3` instead.
 
 ## The pstack extension
 
-The pstack extension adds the pstack skills to Pi's skill list, and it adds a note to each prompt that tells the agent when to enter `poteto-mode`. The `poteto-mode` skill picks the workflow that fits your goal, e.g. a bug fix, a feature, a design review, or a PR watch.
-
-The skills come from [pstack](https://github.com/cursor/plugins/tree/main/pstack) by way of [t3-pstack](https://github.com/chhoumann/t3-pstack). The `pstack/` folder holds the upstream text unchanged, and `overlay/` holds the changes Pi needs.
+The pstack extension serves the [pstack](https://github.com/cursor/plugins/tree/main/pstack) skills, which reach Pi through [t3-pstack](https://github.com/chhoumann/t3-pstack). The `poteto-mode` skill picks the workflow that fits your request, e.g. a bug fix, a feature, a design review, or a PR watch.
 
 ```text
 on(Pi start)
@@ -254,174 +291,113 @@ on(Pi start)
   serve the skills from the copy
 ```
 
-If a change in `overlay/` no longer matches the text in a new upstream version, the test run fails and names the file.
+The `pstack/` folder keeps the upstream text unchanged, and `overlay/` holds the changes Pi needs. If an overlay change no longer matches a new upstream version, the tests fail and name the file.
 
 ### Model routing
 
-The `pstack_model` tool picks the model for each subagent. The agent passes a role, a job type, and a size, and the tool returns a target, which the agent passes to T3's `delegate_task`.
+The `pstack_model` tool returns the T3 target for a subagent, based on its role, job, and size.
 
 ```text
 pstack_model(role, job, size)
-  if size is L
-    refuse, so the agent splits the job
-  if the model sheet names a model for the role
-    use the model from the sheet
-  else
-    look up the job and size in the routing table
-  if the model's family is out of usage
-    use the same tier in the next family
-    (GPT takes only size S work)
+  if size is L                      refuse, so the agent splits the job
+  if the model sheet names a model  use it
+  else                              look up job and size in pstack/models.json
+  if the model's family is out      use the same tier in the next family
   return the target for delegate_task
 ```
 
-The routing table lives in `pstack/models.json`. A size S job takes 30 minutes or less and touches 5 files or fewer, and a size M job takes 90 minutes or less and touches 15 files or fewer.
-
-| Job | Size S | Size M |
+| Job | Size S (30 min, 5 files) | Size M (90 min, 15 files) |
 | --- | --- | --- |
-| `mechanical`, e.g. a lint fix or a rename | Haiku 5.5, low | Sonnet 5.5, medium |
-| `check`, which runs given commands | GPT 6 Luna, low | Haiku 5.5, medium |
-| `research`, which writes one notes file | Muse Spark 1.3, medium | Muse Wonder 1.0, medium |
-| `implement`, one unit with named tests | GPT 6.1 Sol, medium | Sonnet 5.5, high |
-| `hard`, e.g. concurrency or a bug with an unknown cause | Opus 5.5, high | Opus 5.5, high |
-| `review` panel | Opus 5.5, Muse Wonder Full 1.0, and GPT 6.1 Sol, all high | same |
-| `design` panel | Opus 5.5, Muse Wonder Full 1.0, and GPT 6 Astra, all high | same |
+| `mechanical` | Haiku 5.5, low | Sonnet 5.5, medium |
+| `check` | GPT 6 Luna, low | Haiku 5.5, medium |
+| `research` | Muse Spark 1.3, medium | Muse Wonder 1.0, medium |
+| `implement` | GPT 6.1 Sol, medium | Sonnet 5.5, high |
+| `hard` | Opus 5.5, high | Opus 5.5, high |
+| `review` panel | Opus 5.5, Muse Wonder Full 1.0, GPT 6.1 Sol | same |
+| `design` panel | Opus 5.5, Muse Wonder Full 1.0, GPT 6 Astra | same |
 
-To choose your own models, run the `setup-pstack` skill, which writes a model sheet at `~/.config/pi-t3-bridge/models.md`. A line of `session hook: off` in the sheet stops the note about `poteto-mode` on each prompt.
+To choose your own models, run the `setup-pstack` skill. It writes a model sheet at `~/.config/pi-t3-bridge/models.md`, and a line of `session hook: off` in the sheet stops the `poteto-mode` note on each prompt.
 
 ### Limits for delegated children
 
-When the first message of a session is a complete pstack brief, the extension treats the session as a delegated child and holds it to the limits in the brief. The child can't lift the limits through anything it writes.
-
-```mermaid
-sequenceDiagram
-    participant Parent as Parent thread
-    participant T3
-    participant Child as Child thread (pi-t3-bridge)
-    Parent->>T3: delegate_task with a brief
-    T3->>Child: start with the brief
-    Note over Child: shell runs in the sandbox<br/>write and edit limited to the listed files<br/>time and disk limits enforced
-    Child->>Child: write report from commands it ran itself
-    Child-->>T3: final message
-    Child->>Child: append report to the ledger
-    Parent->>T3: task_status
-    T3-->>Parent: result
-    Note over Parent: the extension adds the report from the ledger
-```
-
-The extension decides how to treat a session from its first message, in the order below.
+When a session starts with a complete pstack brief, the extension treats it as a delegated child and holds it to the limits in the brief. The child can't lift the limits through anything it writes.
 
 ```text
 on(tool call)
   if the first message is not a "# Task:" brief
-    run as your own session, with no limits
+    your own session, no limits
   else if the brief is complete
-    run as a child, inside the sandbox and the limits
+    child: sandboxed shell, writes only to listed files, time and disk limits
   else if T3 started the session as a delegated task
-    block every tool, and list what the brief is missing
+    block every tool and list what the brief is missing
   else
-    run as your own session, with no limits
+    your own session, no limits
 ```
 
-A brief is complete when it has a header with the job, size, time limit, and disk limit, and all seven sections of the template in `pstack/skills/poteto-mode/brief.md`. A bullet under "Files you may write" may list several paths, and every word with a slash or a glob counts as a path. The disk limit leaves out `node_modules`, because pnpm fills it from the store, but build output still counts.
+A brief is complete when its header names the job, size, time limit, and disk limit, and it has all seven sections of `pstack/skills/poteto-mode/brief.md`. The child writes its report from commands it ran itself, and the parent reads the report from `ledger.jsonl` when it checks the task.
 
 ### The child sandbox
 
-A delegated child runs every shell command in a sandbox, which is `sandbox-exec` on macOS and `bwrap` on Linux and WSL2. The sandbox lets the child write to its own work and to the caches that package managers need, and it keeps everything the parent runs later read-only.
+A delegated child runs every shell command in a sandbox, which is `sandbox-exec` on macOS and `bwrap` on Linux and WSL2. The child can write to its own work and to package manager caches, and everything else stays read-only.
 
 ```text
 writable inside the sandbox
-├── <workdir>/                       # the child's checkout
-├── <git dir>/                       # objects and refs, so git commit works
-│   ├── hooks/                       # read-only, the parent runs them later
-│   └── config                       # read-only
+├── <workdir>/                    # the child's checkout
+├── <git dir>/                    # so git commit works, except hooks/ and config
 ├── ~/.cache, ~/.npm, ~/.local/share/uv, ~/.local/share/mise
-├── ~/Library/Caches                 # macOS only
-├── <pnpm store>/                    # the store `pnpm store path` names
-├── <system temp folder>/            # also $TMPDIR and $XDG_RUNTIME_DIR
+├── <pnpm store>/
+├── <system temp folder>/         # also $TMPDIR and $XDG_RUNTIME_DIR
 └── /dev
-everything else is read-only
 ```
 
-The bridge sets these variables for each child command:
+Install scripts don't run inside the sandbox, because a `prepare` such as `lefthook install` would fail on the read-only hooks. On Linux each child also gets its own process namespace, so a stray `pkill` can't reach the host.
 
-| Variable | Value | Why |
-| --- | --- | --- |
-| `XDG_RUNTIME_DIR` | a new folder in the temp folder, one per child | pnpm 12 takes its store lock here, and the real one is read-only. |
-| `TMPDIR` | the system temp folder | Commands such as `$TMPDIR/x` resolve to a writable folder. |
-| `pnpm_config_store_dir` | the store `pnpm store path` names for the workdir | Under `bwrap`, pnpm can't hardlink across the sandbox's mounts, so without it pnpm builds a second store in the workdir. With it, pnpm copies from the shared store. |
-| `npm_config_ignore_scripts`, `pnpm_config_ignore_scripts` | `true` | A root `prepare` such as `lefthook install` would fail on the read-only hooks, so install scripts don't run. |
-
-Skipping install scripts has two side effects. First, a step that only a postinstall runs, e.g. `next typegen`, has to run through the build or typecheck that the brief names. Second, npm also skips the `pre` and `post` scripts of `npm run` and `npm test`, while pnpm still runs them.
-
-On Linux the child also runs in its own process namespace, so it can see and signal only its own commands. A stray `pkill` from a child can't reach a daemon on the host, and anything a command starts in the background ends when that command ends.
-
-Some programs need a change to run inside the sandbox:
-
-- Chrome, Electron, and headless shells need `--no-sandbox`, because their own sandbox can't start inside `bwrap`. The child sandbox still confines them.
-- A `pi` run inside a child needs `PI_CODING_AGENT_DIR` set to a writable temp copy of `~/.pi/agent`, because the real folder is read-only.
-
-Native Windows and WSL1 have no sandbox. Where no sandbox can run, the bridge blocks a child's shell commands, unless you set `childSandbox` to `"off"` in the settings file.
+Chrome and Electron need `--no-sandbox` inside the child, and a `pi` run inside a child needs `PI_CODING_AGENT_DIR` set to a writable copy of `~/.pi/agent`. Native Windows and WSL1 have no sandbox, so the bridge blocks a child's shell commands there unless you set `childSandbox` to `"off"`.
 
 ## The tstack extension
 
-The tstack extension serves Theo Browne's tstack skills from `tstack/skills`, which are babysit-pr, council, file-pr, full-send, full-stop, leaving-pr-comments, modernize, sol-loop, and takeover. It imports no other code from the package, so the skills stay available when you turn the other extensions off.
+The tstack extension serves Theo Browne's skills from `tstack/skills`. They cover the PR cycle, from `file-pr` through `babysit-pr`, plus `council`, `sol-loop`, `full-send`, `full-stop`, `takeover`, `modernize`, and `leaving-pr-comments`.
 
-## Settings
+## Settings and files
 
-The bridge reads one JSON file per machine, at `~/.config/pi-t3/config.json`. Every key is optional. The bridge reads the file again on each prompt, so an edit applies on the next prompt, except `mcpUrl`, which applies on the next `/new`, `/reload`, or Pi start. If a value is invalid, only that key falls back to its default, and the bridge tells you once.
-
-```json
-{
-  "bashTimeoutSeconds": 300,
-  "childSandbox": "on",
-  "mcpUrl": "http://127.0.0.1:3773/mcp"
-}
-```
+The bridge reads `~/.config/pi-t3/config.json` again on each prompt, and every key is optional. If a value is invalid, only that key falls back to its default.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `bashTimeoutSeconds` | `300` | The longest a shell command can run, in seconds. |
-| `childSandbox` | `"on"` | With `"on"`, a child's `bash` is blocked when no sandbox can run. With `"off"`, commands run with no sandbox on every platform, and the child's report says `SANDBOX: off`. |
-| `mcpUrl` | `http://127.0.0.1:3773/mcp` | The T3 MCP address to use from a terminal. A change applies on the next `/new`, `/reload`, or Pi start. |
-
-The package writes its files in the places below. If `XDG_CONFIG_HOME` or `XDG_STATE_HOME` is set, the folder it names replaces `~/.config` or `~/.local/state`.
+| `childSandbox` | `"on"` | With `"off"`, child commands run with no sandbox on every platform. |
+| `mcpUrl` | `http://127.0.0.1:3773/mcp` | The T3 MCP address for Pi in a terminal. It applies on the next `/new`, `/reload`, or start. |
 
 ```text
 ~/.config/
 ├── pi-t3/config.json          # bridge settings
-└── pi-t3-bridge/models.md     # model sheet, written by setup-pstack
+└── pi-t3-bridge/models.md     # model sheet from setup-pstack
 ~/.local/state/pi-t3/
 ├── accounts.json              # model families that are out of usage
 ├── ledger.jsonl               # one line per delegated brief, with cost and report
-├── t3-mcp.json                # the T3 MCP token, for Pi in a terminal
+├── t3-mcp.json                # T3 MCP token for Pi in a terminal
 └── pstack-overlay/            # pstack skills with the Pi changes applied
 ```
 
-Earlier releases kept the state and the model sheet under `t3-pstack`, and the first start after an upgrade moves them to the new folders.
+`XDG_CONFIG_HOME` and `XDG_STATE_HOME` replace `~/.config` and `~/.local/state` when they are set.
 
 ## Data handling
 
-The package has no server and sends no telemetry. Any file a skill asks the agent to read goes to your model provider. Scripts run on your machine, and the PR tools use your GitHub CLI login.
+The package has no server and sends no telemetry. Any file a skill asks the agent to read goes to your model provider, and the PR tools use your GitHub CLI login.
 
 ## Development
 
-The repository uses npm. The tests need Docker, because some of them run the child tests in Linux containers.
+The repository uses npm, and some tests need Docker to run Linux containers.
 
 ```bash
 npm install
-npm test           # node:test suites for the bridge and the pstack scripts
+npm test            # node:test suites for the bridge and the pstack scripts
 npm run typecheck
-npm run check      # Ultracite lint and format check
+npm run check       # Ultracite lint and format check
 ```
 
-The `pstack/` folder is a git subtree of t3-pstack. To take upstream changes, run `git merge -X subtree=pstack pstack-upstream`. Put Pi changes in `overlay/`, and leave `pstack/` as upstream wrote it.
+The `pstack/` folder is a git subtree of t3-pstack, so you take upstream changes with `git merge -X subtree=pstack pstack-upstream`. Put Pi changes in `overlay/`, and leave `pstack/` as upstream wrote it.
 
 ## License
 
-The package uses the MIT license. The copyright holders include the following people and companies:
-
-- Lauren Tan, for the original pstack
-- Cursor, for the imported cursor-team-kit and thermos skills
-- Christian Bager Bach Houmann, for the T3 changes in t3-pstack
-
-See [LICENSE](LICENSE) and [NOTICE.md](pstack/skills/poteto-mode/references/licenses/NOTICE.md) for the full list.
+The package uses the MIT license. See [LICENSE](LICENSE) and [NOTICE.md](pstack/skills/poteto-mode/references/licenses/NOTICE.md) for the copyright holders, who include Lauren Tan, Cursor, and Christian Bager Bach Houmann.

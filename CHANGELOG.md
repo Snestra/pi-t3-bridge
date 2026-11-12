@@ -1,6 +1,8 @@
 # Change log
 
-## Unreleased
+## 0.10.1, 11 November 2026
+
+The README is rewritten around the features, with a new section on workflows and diagrams in place of long paragraphs. The section on verifying a release archive is gone.
 
 These problems are fixed:
 
