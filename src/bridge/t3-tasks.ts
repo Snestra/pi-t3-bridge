@@ -72,12 +72,12 @@ export interface GoalExecutionState {
   readonly reason?: string;
 }
 
-export interface ChildWake {
+interface ChildWake {
   readonly taskId: string;
   readonly status: string;
 }
 
-export interface TrackedTask {
+interface TrackedTask {
   readonly task: TaskState;
   readonly needsStatus: boolean;
 }
@@ -120,7 +120,7 @@ export const taskDisposition = (
 
 const WAKE = /Delegated task (?<taskId>\S+) .*?\[(?<status>[a-z_]+)\]/gu;
 
-export const childWakes = (text: string): ChildWake[] =>
+const childWakes = (text: string): ChildWake[] =>
   Array.from(text.matchAll(WAKE), (match) => ({
     status: match.groups?.status ?? "",
     taskId: match.groups?.taskId ?? "",
@@ -255,7 +255,7 @@ export const taskOutcome = (
     : undefined;
 
 // Merge partial responses without losing a known descendant wait or returned link.
-export const recordTaskOutcome = (
+const recordTaskOutcome = (
   tasks: Map<string, TrackedTask>,
   task: TaskState,
   toolName: string
@@ -269,28 +269,7 @@ export const recordTaskOutcome = (
   });
 };
 
-// Call from tool_execution_end, including events with parentToolCallId.
-export const recordTaskExecution = (
-  tasks: Map<string, TrackedTask>,
-  event: {
-    readonly toolName: string;
-    readonly result: {
-      readonly content: readonly unknown[];
-      readonly structuredContent?: unknown;
-    };
-    readonly isError: boolean;
-  }
-): TaskState | undefined => {
-  const task = taskOutcome(event.toolName, event.result, event.isError);
-
-  if (task) {
-    recordTaskOutcome(tasks, task, event.toolName);
-  }
-
-  return task;
-};
-
-export const recordChildWake = (
+const recordChildWake = (
   tasks: Map<string, TrackedTask>,
   wake: ChildWake
 ): void => {
@@ -359,25 +338,6 @@ export const trackedTasks = (
 
   return tasks;
 };
-
-export const launchEvidence = (
-  branch: readonly SessionEntry[],
-  requestId: string,
-  taskId: string
-): boolean =>
-  branch.some((entry) => {
-    if (
-      entry.type !== "custom" ||
-      entry.customType !== TASK_ENTRY ||
-      !savedOutcome.check(entry.data) ||
-      !isT3Tool(entry.data.toolName, "delegate_task") ||
-      entry.data.task.taskId !== taskId
-    ) {
-      return false;
-    }
-
-    return entry.data.args?.clientRequestId === requestId;
-  });
 
 export const registerTaskOutcomes = (pi: ExtensionAPI): void => {
   const argumentsByCall = new Map<string, unknown>();

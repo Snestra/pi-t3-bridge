@@ -10,7 +10,8 @@ Progress and errors that do not end the run go to stderr.
 
 --until
   green       required checks passed on the current head (every CI check when
-              the base branch requires none)
+              the base branch requires none, or no checks at all when the PR
+              has none on two polls in a row)
   ready      green, Greptile or Macroscope reviewed the current head, and no
               review thread is unresolved (default)
   any-change  stop after the first poll that prints an event
@@ -37,7 +38,7 @@ CodeRabbit is advisory: pr-wait reports it but never waits for it. Comment
 edits are never events, and top-level comments from CI and deploy bots
 (github-actions, Vercel) are skipped, because checks already carry that news.
 
-State lives in ~/.local/state/pr-wait/. A lock makes a second watcher for the
+State lives in $XDG_STATE_HOME/pr-wait/ (~/.local/state/pr-wait/ by default). A lock makes a second watcher for the
 same PR exit at once. A state file lets a restarted watcher report what arrived
 while no watcher ran. The first run for a PR records what already exists and
 reports only what comes after.
@@ -63,7 +64,7 @@ GATING_BOTS = ("greptile", "macroscope")
 ADVISORY_BOTS = ("coderabbit",)
 # CI and deploy bots report through checks. Their PR comments are status reports.
 STATUS_BOTS = ("github-actions", "vercel", "netlify", "railway", "cloudflare")
-STATE_DIR = Path.home() / ".local" / "state" / "pr-wait"
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "pr-wait"
 # A state file older than this describes an old session. Start a fresh baseline
 # instead of replaying hours of comments as new events.
 STALE_STATE_SECONDS = 6 * 3600
@@ -377,7 +378,9 @@ class Watcher:
                 fail_lines.append(f"{label} failed: {name} {link}")
                 self.emit(f"fail:{head}:{name}:{link}", fail_lines[-1])
         watched = {name: c for name, c in checks.items() if bot_name(name) not in ADVISORY_BOTS}
-        gate_done = bool(gate) and all(bucket(n) != "pending" for n in gate)
+        # A PR with no checks at all is done once two polls in a row agree
+        # (the stable guard below), so a repo without CI can still go green.
+        gate_done = all(bucket(n) != "pending" for n in gate)
         all_done = gate_done and all(c["bucket"] != "pending" for c in watched.values())
         # Checks appear a few seconds after a push. Two identical polls in a row
         # guard against calling a half-registered set of checks finished.

@@ -68,6 +68,8 @@ export const workflowSchema = obj({
           cancellationPending: opt(bool()),
           childTaskId: opt(id),
           childTerminal: opt(outcome),
+          // Nothing sets it any more. Workflows saved by 0.10.x may still
+          // carry it, so it stays readable.
           childTurnEnded: opt(bool()),
           launch: oneOf(["intent", "unknown", "started", "not_started"]),
           requestId: id,

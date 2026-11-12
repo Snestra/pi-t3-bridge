@@ -356,6 +356,27 @@ const facts = (
         : []
     );
 
+// The facts get_goal returns: the ones evidence can still cite (the latest
+// from each producer at the current requirement revision, as
+// validateEvidence requires) and the ones saved evidence already cites.
+// Older facts stay in the session but can't become evidence.
+const citableFacts = (
+  ctx: ExtensionContext,
+  goal: Goal
+): Static<typeof FactSchema>[] => {
+  const records = facts(ctx, goal);
+  const cited = new Set(goal.evidence.map((item) => item.source));
+
+  const latest = new Map(records.map((record) => [record.producer, record.id]));
+
+  return records.filter(
+    (record) =>
+      cited.has(record.id) ||
+      (record.revision === goal.requirementRevision &&
+        latest.get(record.producer) === record.id)
+  );
+};
+
 const validateArtifact = async (
   ctx: ExtensionContext,
   item: Goal["evidence"][number]
@@ -851,6 +872,14 @@ export const registerGoal = (
       { cwd: ctx.cwd }
     );
 
+    // Goals track the workspace through git, so a folder outside a
+    // repository has no file list to check evidence against.
+    if (result.stderr.includes("not a git repository")) {
+      throw new Error(
+        `Goals need a git repository, and ${ctx.cwd} is not in one. Run git init there first.`
+      );
+    }
+
     if (result.code !== 0) {
       throw new Error("Cannot recheck workspace files. Goal remains stopped.");
     }
@@ -1062,7 +1091,7 @@ export const registerGoal = (
           );
         }
 
-        return goalResult(goal, goal ? facts(ctx, goal) : []);
+        return goalResult(goal, goal ? citableFacts(ctx, goal) : []);
       },
       label: "Get goal",
       name: "get_goal",
