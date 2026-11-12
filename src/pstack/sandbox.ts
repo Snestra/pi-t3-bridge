@@ -225,10 +225,30 @@ const prepareBinds = (
   }
 };
 
-const childEnv = async (workdir: string): Promise<ChildEnv> => ({
-  pnpmStore: await pnpmStore(workdir),
-  runtimeDir: mkdtempSync(path.join(tmpdir(), "pi-t3-child-")),
+// Runtime directories made in this process and not yet removed. A session
+// that ends without session_shutdown, such as an SDK session.dispose(), would
+// otherwise leave its directory behind, so the rest go when the process exits.
+const runtimeDirs = new Set<string>();
+
+const removeRuntimeDir = (dir: string): void => {
+  rmSync(dir, { force: true, recursive: true });
+  runtimeDirs.delete(dir);
+};
+
+process.once("exit", () => {
+  for (const dir of runtimeDirs) {
+    removeRuntimeDir(dir);
+  }
 });
+
+const childEnv = async (workdir: string): Promise<ChildEnv> => {
+  const store = await pnpmStore(workdir);
+  const runtimeDir = mkdtempSync(path.join(tmpdir(), "pi-t3-child-"));
+
+  runtimeDirs.add(runtimeDir);
+
+  return { pnpmStore: store, runtimeDir };
+};
 
 // Run once per child, before its first command. "childSandbox": "off" in the
 // config wins on every platform.
@@ -271,7 +291,7 @@ export const chooseSandbox = async (
   try {
     prepareBinds(gitDir, env.pnpmStore);
   } catch (error) {
-    rmSync(env.runtimeDir, { force: true, recursive: true });
+    removeRuntimeDir(env.runtimeDir);
 
     throw error;
   }
@@ -284,7 +304,7 @@ export const chooseSandbox = async (
 // still needs it.
 export const releaseSandbox = (sandbox: Sandbox | undefined): void => {
   if (sandbox !== undefined && sandbox.kind !== "unavailable") {
-    rmSync(sandbox.env.runtimeDir, { force: true, recursive: true });
+    removeRuntimeDir(sandbox.env.runtimeDir);
   }
 };
 
