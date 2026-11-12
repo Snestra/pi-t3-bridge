@@ -1,6 +1,6 @@
 # Change log
 
-## Unreleased
+## 0.11.0, 12 November 2026
 
 These problems are fixed:
 
@@ -10,6 +10,7 @@ These problems are fixed:
 - Copies of pstack under `~/.local/state/pi-t3/pstack-overlay` were never deleted, and each held upstream's 3.5 MB statechart test corpus. Pi now deletes copies no start has used for 7 days, and copies leave out upstream's tests.
 - `pr-wait` never reported green for a PR with no checks, and ignored `XDG_STATE_HOME`. A PR with no checks is now green after two polls agree, and state goes under `$XDG_STATE_HOME/pr-wait`.
 - `npm test` could read and write the real config and state folders. It now points them at a temp folder.
+- Each extension load added another exit listener for the sandbox's runtime folders, so `npm test` and repeated `/reload` printed MaxListenersExceededWarning. All loads now share one listener.
 
 `council` now asks for three model families rather than three providers, so one provider that serves Claude, GPT and Gemini models is enough. The `poteto-help`, `setup-pstack` and `automate-me` skills now give Pi install steps, `/skill:<name>` names and the `ask` tool. Unused exports are gone from the bridge.
 
