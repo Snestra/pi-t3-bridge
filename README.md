@@ -29,7 +29,7 @@ The package is on GitHub only, so you install it with Pi from git.
 
 ```bash
 pi install git:github.com/Snestra/pi-t3-bridge          # newest commit on main
-pi install git:github.com/Snestra/pi-t3-bridge@v0.10.0  # one release
+pi install git:github.com/Snestra/pi-t3-bridge@v0.10.1  # one release
 pi -e git:github.com/Snestra/pi-t3-bridge               # one session, nothing saved
 ```
 
