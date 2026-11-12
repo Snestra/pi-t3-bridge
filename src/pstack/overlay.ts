@@ -9,6 +9,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
@@ -50,6 +51,50 @@ const COPIED_ENTRIES = [
   "models.json",
   "hooks/session-start-context.md",
 ] as const;
+
+// Upstream's own tests and their fixture corpus are not read by agents, and
+// the corpus alone is most of each copy's size.
+// Part of every copy's key. Raise it when the copy's layout changes, so
+// copies built the old way are rebuilt instead of served.
+const COPY_FORMAT = "2";
+
+const isUpstreamTest = (source: string): boolean =>
+  path.basename(source) === "test" || source.endsWith(".test.ts");
+
+// A copy no Pi process has started from in this long is removed. A session
+// that keeps running past it without a restart loses its skill files.
+const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Every start marks its copy as used, then removes copies (and leftovers of
+// crashed builds) that no start has used within RETENTION_MS. Each is moved
+// aside before removal, so a copy another process renames into place at the
+// same moment is never half deleted.
+const pruneCopies = (cacheRoot: string, current: string): void => {
+  const now = new Date();
+
+  utimesSync(current, now, now);
+
+  for (const name of readdirSync(cacheRoot)) {
+    const full = path.join(cacheRoot, name);
+
+    if (full === current) {
+      continue;
+    }
+
+    try {
+      if (now.getTime() - statSync(full).mtimeMs < RETENTION_MS) {
+        continue;
+      }
+
+      const doomed = `${full}.${process.pid}.expired`;
+
+      renameSync(full, doomed);
+      rmSync(doomed, { force: true, recursive: true });
+    } catch {
+      // Another process removed or renamed it first.
+    }
+  }
+};
 
 const loadManifest = (dir: string): OverlayManifest => {
   const manifestPath = path.join(dir, "overlay.json");
@@ -118,6 +163,7 @@ const fingerprint = (
   extensionModules: string
 ): string => {
   const hash = createHash("sha256")
+    .update(COPY_FORMAT)
     .update(manifestText)
     .update(extensionModules);
 
@@ -174,6 +220,8 @@ export const materializePstack = (
       existsSync(path.join(target, "node_modules")));
 
   if (usable()) {
+    pruneCopies(cacheRoot, target);
+
     return target;
   }
 
@@ -190,7 +238,10 @@ export const materializePstack = (
       const from = path.join(upstreamRoot, entry);
 
       if (existsSync(from)) {
-        cpSync(from, path.join(staging, entry), { recursive: true });
+        cpSync(from, path.join(staging, entry), {
+          filter: (source) => !isUpstreamTest(source),
+          recursive: true,
+        });
       }
     }
 
@@ -236,11 +287,15 @@ export const materializePstack = (
     // Another Pi process that started at the same time renamed the same copy
     // into place first. Its copy is identical, so use it.
     if (usable()) {
+      pruneCopies(cacheRoot, target);
+
       return target;
     }
 
     throw error;
   }
+
+  pruneCopies(cacheRoot, target);
 
   return target;
 };

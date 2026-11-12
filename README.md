@@ -400,4 +400,4 @@ The `pstack/` folder is a git subtree of t3-pstack, so you take upstream changes
 
 ## License
 
-The package uses the MIT license. See [LICENSE](LICENSE) and [NOTICE.md](pstack/skills/poteto-mode/references/licenses/NOTICE.md) for the copyright holders, who include Lauren Tan, Cursor, and Christian Bager Bach Houmann.
+The package uses the MIT license. See [LICENSE](LICENSE) and [NOTICE.md](pstack/skills/poteto-mode/references/licenses/NOTICE.md) for the copyright holders, who include Lauren Tan, Cursor, and Christian Bager Bach Houmann. The skills in `tstack/` keep their own MIT license from Theo Browne, in [tstack/LICENSE](tstack/LICENSE).

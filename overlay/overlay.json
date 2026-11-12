@@ -116,6 +116,34 @@
       {
         "find": " `inherit-parent` and `auto` do not change. Say when you offer `unlimited` or `large` that a sheet's `xhigh` or `max` still runs only when the user's latest message in that chat is \"allow xhigh\" (or \"allow max\"). Otherwise `delegate_task` refuses it, so those budgets mostly fall back to asking.",
         "replace": " `inherit-parent` and `auto` do not change."
+      },
+      {
+        "find": "(`AskUserQuestion` on Claude Code, numbered options in plain text elsewhere)",
+        "replace": "(the `ask` tool)"
+      }
+    ],
+    "skills/poteto-help/SKILL.md": [
+      {
+        "find": "1. Install t3-pstack per its [README](https://github.com/chhoumann/t3-pstack#readme). One `npx -y github:chhoumann/t3-pstack install` run installs it in every Claude Code and Codex config home T3 can run.",
+        "replace": "1. In Pi, pstack ships inside the pi-t3-bridge package, so `pi install git:github.com/Snestra/pi-t3-bridge` installs it. There is nothing else to install."
+      },
+      {
+        "find": "t3-pstack is pstack rewritten for T3 Code, and it installs in Claude Code and Codex with `npx -y github:chhoumann/t3-pstack install`.",
+        "replace": "t3-pstack is pstack rewritten for T3 Code. In Pi it ships with the pi-t3-bridge package."
+      },
+      {
+        "find": "- Skill names differ by harness: `/t3-pstack:poteto-mode` on Claude Code, `$t3-pstack:poteto-mode` on Codex. This file writes every skill as `/<name>`.",
+        "replace": "- In Pi, type a skill as `/skill:<name>`, such as `/skill:poteto-mode`. This file writes every skill as `/<name>`."
+      }
+    ],
+    "skills/automate-me/SKILL.md": [
+      {
+        "find": "(`AskUserQuestion` on Claude Code, numbered options in plain text elsewhere)",
+        "replace": "(the `ask` tool)"
+      },
+      {
+        "find": "(`AskUserQuestion` on Claude Code, numbered options in plain text where the harness has no question tool)",
+        "replace": "(the `ask` tool)"
       }
     ]
   }

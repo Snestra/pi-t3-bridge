@@ -1023,7 +1023,6 @@ test("a slow disk check still stops a late tool call and an over-limit report", 
       const report = filled.lastAssistantText();
 
       assert.match(report, /Checked by pi-t3-bridge/u);
-      console.log("REPORT>>", report);
       assert.match(report, /STATUS: BLOCKED/u, report);
     } finally {
       filled.session.dispose();

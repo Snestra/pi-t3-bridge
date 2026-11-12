@@ -298,16 +298,20 @@ export const sessionBrief = (
     : { brief, startedAt: first.at };
 };
 
-// What is wrong with a brief that has a `# Task:` heading but is not complete
-// enough to hold a child to. Undefined when there is no such brief.
-export const incompleteBrief = (
+// What is wrong with a brief that has a `# Task:` heading, whether it is
+// incomplete or complete but over its limits. Undefined when there is no such
+// brief or nothing is wrong with it.
+export const invalidBrief = (
   ctx: ExtensionContext,
   policy: Policy
 ): string[] | undefined => {
   const first = firstMessage(ctx);
-  const brief = first === undefined ? undefined : parseBrief(first.text);
 
-  return first === undefined || brief === undefined || dispatchable(brief)
-    ? undefined
-    : briefProblems(first.text, policy);
+  if (first === undefined || !TASK_HEADING.test(first.text)) {
+    return undefined;
+  }
+
+  const problems = briefProblems(first.text, policy);
+
+  return problems.length > 0 ? problems : undefined;
 };

@@ -9,6 +9,7 @@ import { render } from "pele";
 import type { GoalAcceptanceSnapshot } from "./goal.ts";
 import { findT3Tool } from "./t3-tasks.ts";
 import type { GoalExecutionState } from "./t3-tasks.ts";
+import type { TaskStatus } from "./tasks.ts";
 import { workflowAccepted } from "./workflow.ts";
 import type { Workflow } from "./workflow.ts";
 
@@ -147,10 +148,8 @@ export const planCard = (title: string, plan: string): InlineCard => {
 };
 
 // The step classes are the task statuses STYLE colors.
-type StepStatus = "completed" | "in_progress" | "pending";
-
 const STEP_LOOK: Readonly<
-  Record<StepStatus, { readonly label: string; readonly mark: string }>
+  Record<TaskStatus, { readonly label: string; readonly mark: string }>
 > = {
   completed: { label: "Completed", mark: "✓" },
   in_progress: { label: "In progress", mark: "●" },
@@ -161,7 +160,7 @@ export const taskCard = (list: {
   readonly explanation?: string | undefined;
   readonly progress: string;
   readonly steps: readonly {
-    readonly status: StepStatus;
+    readonly status: TaskStatus;
     readonly text: string;
   }[];
 }): InlineCard => {

@@ -23,7 +23,7 @@ import {
 import { configPath, readConfig } from "../bridge/config.ts";
 import { appendLedger } from "../bridge/ledger.ts";
 import { isDelegatedChild, ownThreadId } from "../bridge/thread.ts";
-import { incompleteBrief, sessionBrief } from "./brief.ts";
+import { invalidBrief, sessionBrief } from "./brief.ts";
 import type { Brief } from "./brief.ts";
 import { readPolicy } from "./resources.ts";
 import {
@@ -366,29 +366,32 @@ export const registerChild = (pi: ExtensionAPI): void => {
   pi.on("before_agent_start", async (_event, ctx) => {
     const started = sessionBrief(ctx);
 
-    if (started !== undefined) {
+    if (
+      started !== undefined &&
+      (invalidBrief(ctx, readPolicy()) === undefined ||
+        !(await isDelegatedChild()))
+    ) {
       await prepare(ctx, started.brief);
     }
   });
 
   pi.on("tool_call", async (event, ctx) => {
+    // A delegated child runs only from a brief that passes every check. An
+    // incomplete one would otherwise run with no sandbox and no limits, and
+    // a complete one could exceed the limits its size allows.
+    const problems = invalidBrief(ctx, readPolicy());
+
+    if (problems !== undefined && (await isDelegatedChild())) {
+      return {
+        block: true,
+        reason: `This delegated task's brief does not pass its checks, so every tool is blocked. Use no more tools. Report STATUS: BLOCKED (invalid brief) with these problems, so the parent can resend a corrected brief:\n- ${problems.join("\n- ")}`,
+      };
+    }
+
     const started = sessionBrief(ctx);
 
     if (started === undefined) {
-      // A delegated child whose brief is incomplete would otherwise run with
-      // no sandbox and no limits, as if it were the user's own session.
-      const problems = incompleteBrief(ctx, readPolicy());
-
-      if (problems === undefined) {
-        return;
-      }
-
-      return (await isDelegatedChild())
-        ? {
-            block: true,
-            reason: `This delegated task's brief is incomplete, so it can't run in the sandbox and every tool is blocked. Use no more tools. Report STATUS: BLOCKED (incomplete brief) with these problems, so the parent can resend a complete brief:\n- ${problems.join("\n- ")}`,
-          }
-        : undefined;
+      return;
     }
 
     const { brief, startedAt } = started;

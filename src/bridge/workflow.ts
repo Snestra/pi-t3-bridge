@@ -9,7 +9,7 @@ export type WorkflowTask = Static<typeof workflowTaskSchema>;
 
 export type WorkflowTarget = Static<typeof workflowTargetSchema>;
 
-export type WorkflowState =
+type WorkflowState =
   | "pending"
   | "ready"
   | "running"
@@ -19,17 +19,17 @@ export type WorkflowState =
   | "failed"
   | "cancelled";
 
-export interface WorkflowOwner {
+interface WorkflowOwner {
   sessionId: string;
   branchId: string;
 }
 
-export interface WorkflowExecutor {
+interface WorkflowExecutor {
   kind: "local" | "delegated";
   isolation: "shared" | "worktree";
 }
 
-export interface WorkflowResult {
+interface WorkflowResult {
   summary: string;
   evidence: Record<string, string>;
   artifacts: string[];
@@ -47,12 +47,11 @@ export interface WorkflowAttempt {
   cancellationPending?: boolean;
   launch: "intent" | "unknown" | "started" | "not_started";
   childTaskId?: string;
-  childTurnEnded?: boolean;
   childTerminal?: "succeeded" | "failed" | "cancelled";
   result?: WorkflowResult;
 }
 
-export interface WorkflowStep {
+interface WorkflowStep {
   id: string;
   purpose: string;
   dependencies: string[];
@@ -378,18 +377,6 @@ export const reconcileWorkflowLaunch = (
     }
 
     step.blocked = undefined;
-  });
-
-export const recordChildTurnEnded = (
-  workflow: Workflow,
-  guard: WorkflowGuard,
-  stepId: string
-): Workflow =>
-  change(workflow, guard, stepId, (step) => {
-    requireValue(step.state === "waiting_for_child", "No active child");
-    const attempt = step.attempts.at(-1);
-    requireValue(attempt, "Missing child attempt");
-    attempt.childTurnEnded = true;
   });
 
 export const finishWorkflowStep = (

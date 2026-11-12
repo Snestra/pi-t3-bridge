@@ -34,7 +34,7 @@ const TaskSnapshotSchema = obj(
   { open: true }
 );
 
-type TaskStatus = Static<typeof TaskStatusSchema>;
+export type TaskStatus = Static<typeof TaskStatusSchema>;
 
 type TaskSnapshot = Static<typeof TaskSnapshotSchema>;
 
@@ -44,7 +44,7 @@ const TaskInputSchema = obj({
   workflowId: opt(str({ minLength: 1 })),
 });
 
-export const projectWorkflow = (workflow: Workflow): TaskSnapshot => ({
+const projectWorkflow = (workflow: Workflow): TaskSnapshot => ({
   steps: workflow.steps.map((step) => {
     const integration = step.attempts.at(-1)?.result?.integration;
 
@@ -162,5 +162,3 @@ export const createTasksTool = (render = renderInlineCard) =>
     parameters: TaskInputSchema,
     promptSnippet: "Publish the current task list as a card in the chat.",
   });
-
-export const tasksTool = createTasksTool();
