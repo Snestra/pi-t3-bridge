@@ -68,7 +68,7 @@
     ]
   },
   "upstreams": {
-    "t3": "0.1.7",
-    "tstack": "1085050f3baed1ac724caa4a8166145fb2ac88af"
+    "t3": "0.1.10-nightly.20261113.4616",
+    "tstack": "11e37a74d0a6868c121cd0910ab2b3bd9873b92a"
   }
 }

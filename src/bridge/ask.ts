@@ -364,6 +364,8 @@ const askTool = defineTool({
   },
   promptGuidelines: [
     "Use ask for every question to the user, including a request for a decision or an approval. Never end a reply with a question in plain text, because nobody answers it there.",
+    "When the next step needs the user to act, such as a sign-up, a click in a dashboard, or a device in their hand, call ask with exactly what to do and wait for them to say it is done. Never end a reply that hands them the step or says you are waiting.",
+    "For a login, token, key, or password only the user has, call request_secret where it is available, never ask, so the value stays out of the chat.",
   ],
   promptSnippet:
     "Ask the user for a decision or input and wait for the answer.",

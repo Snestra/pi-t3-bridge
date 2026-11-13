@@ -231,18 +231,26 @@ Read-only tools still run while the card waits, so the agent can keep reading fi
 
 ## Reply checks
 
-When a run is about to stop, the bridge checks the last reply with two fixed rules. No model judges the reply, so the same reply always gets the same result.
+When a run is about to stop, the bridge checks the last reply with fixed rules. No model judges the reply, so the same reply always gets the same result.
 
 ```text
 on(run about to stop)
   if the reply hit the output limit
     continue, at most twice per prompt
-  else if the last 5 lines of prose ask a question
-      and the ask tool is on, and the session is not a child
-    tell the agent to ask with the ask tool, once per prompt
+  else if the session has a UI and is not a child
+    if the closing asks for a login, token, key, or password
+        and request_secret is on
+      tell the agent to call request_secret
+    else if the closing hands you a task or waits on you,
+        or lists items under "What I need from you"
+      tell the agent to do the task, or ask with the ask tool
+    else if the last 5 lines of prose ask a question
+      tell the agent to ask with the ask tool
 ```
 
-A question in plain text ends the run, and nobody sees it. The second rule sends the agent back to put the question on an `ask` card, which waits for your answer. Code blocks and inline code don't count, so a `?` in a regex is ignored.
+Each of the last three rules fires at most once per prompt. A question or a request in plain text ends the run, and nobody sees it until much later. These rules send the agent back to put it on a card that waits for your answer, so the run goes on once you answer. "Let me know if you want more" is an offer, not a wait, and "Nothing needed from you" asks for nothing, so neither counts. Code blocks don't count, and inline code counts only for its words, so `STRIPE_SECRET_KEY` names a secret but a `?` in a regex is not a question.
+
+Inside T3, T3 offers `request_secret` only through `tool_search`, so a model rarely finds it. The bridge declares it to the model in every T3 thread that has a UI and is not a child, so a secret card is one call away, like `ask`.
 
 ## Usage limits and resume
 

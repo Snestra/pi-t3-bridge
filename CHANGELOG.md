@@ -1,5 +1,16 @@
 # Change log
 
+## Unreleased
+
+Agents now ask with a card instead of leaving you a request in chat:
+
+- Inside T3, `request_secret` is declared to the model in every thread with a UI. T3 registers it for `tool_search` only, so models wrote "paste your token here" or waited for you instead.
+- A reply that asks for a login, token, key, or password in prose, such as "Run `gh auth login` and tell me when it's done", sends the agent back to call `request_secret`.
+- A reply that hands you a task or waits on you, such as "Once you've enabled billing, I'll run it", or that lists items under "What I need from you", sends the agent back to do the task itself or to ask with an `ask` card that waits until you say it is done.
+- The `ask` tool's guidance tells the agent to ask and wait for a step only you can take, and to use `request_secret` for secrets.
+
+Pi is now 1.5.2. pstack is synced to t3-pstack 2.2.8: a delegated child is a leaf that starts no subagents unless its brief names one, writers use T3's `isolation: "worktree"`, and the worktree audit reads refs by full name. tstack is synced to `11e37a74`, where `council` acts on each result as it arrives. The T3 MCP tool list was checked against T3 0.1.10 nightly, and no change was needed.
+
 ## 0.11.0, 12 November 2026
 
 These problems are fixed:

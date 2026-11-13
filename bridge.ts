@@ -13,6 +13,7 @@ import {
 } from "./src/bridge/goal.ts";
 import { registerPlanGate } from "./src/bridge/plan.ts";
 import { registerReplyCheck } from "./src/bridge/reply-check.ts";
+import { registerRequestSecret } from "./src/bridge/request-secret.ts";
 import { registerResume } from "./src/bridge/resume.ts";
 import { registerSkills } from "./src/bridge/skills.ts";
 import { moveOldState } from "./src/bridge/state.ts";
@@ -45,6 +46,7 @@ const piT3Bridge = (pi: ExtensionAPI): void => {
   registerSkills(pi);
   registerPlanGate(pi);
   registerAsk(pi);
+  registerRequestSecret(pi);
   registerT3Mcp(pi);
   registerUsage(pi);
 
