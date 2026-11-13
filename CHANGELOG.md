@@ -1,6 +1,6 @@
 # Change log
 
-## Unreleased
+## 0.12.0, 13 November 2026
 
 Agents now ask with a card instead of leaving you a request in chat:
 
@@ -10,6 +10,8 @@ Agents now ask with a card instead of leaving you a request in chat:
 - The `ask` tool's guidance tells the agent to ask and wait for a step only you can take, and to use `request_secret` for secrets.
 
 Pi is now 1.5.2. pstack is synced to t3-pstack 2.2.8: a delegated child is a leaf that starts no subagents unless its brief names one, writers use T3's `isolation: "worktree"`, and the worktree audit reads refs by full name. tstack is synced to `11e37a74`, where `council` acts on each result as it arrives. The T3 MCP tool list was checked against T3 0.1.10 nightly, and no change was needed.
+
+`pstack/` now holds t3-pstack 2.2.8's skill text exactly as upstream ships it. The Pi changes to that text, such as the brief format and `pstack_model`, moved into `overlay/overlay.json`, so the skills Pi serves are unchanged and the next sync can take upstream's text without a merge.
 
 ## 0.11.0, 12 November 2026
 
