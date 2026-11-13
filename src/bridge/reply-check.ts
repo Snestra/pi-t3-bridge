@@ -17,9 +17,8 @@ import { isDelegatedChild } from "./thread.ts";
 //   length    the reply hit the output limit, so the agent continues it
 //   secret    the reply asks the user for a login, token, key, or password
 //             in prose, so the agent asks again with request_secret
-//   handoff   the reply leaves the user a task or waits on them in prose,
-//             so the agent does the task or asks with the ask tool, which
-//             waits for the answer
+//   handoff   the reply waits on the user in prose, so the agent does the
+//             task or asks with the ask tool, which waits for the answer
 //   question  the reply ends by asking the user something in prose, so the
 //             agent asks it again with the ask tool
 
@@ -51,11 +50,11 @@ const noteText = (kind: Kind, secretTool: string): string => {
     }
 
     case "handoff": {
-      return `Bridge · Handoff in prose: Your last message leaves the user a task or waits on them in plain text, and nobody reads it until long after the run stops. If you can do the task yourself, do it now. Otherwise call the ask tool now with one card per thing you need, your recommendation first. For a step only the user can take, the card says exactly what to do and waits until they say it is done. Never ask for a password, token, or key in an ask card. ${DONT_REPEAT}`;
+      return `Bridge · Handoff in prose: Your last message waits on the user in plain text, and nobody reads it until long after the run stops. If you can do the task yourself, do it now. If the work is done and you need nothing from the user, stop without a message. Otherwise call the ask tool now with one card per thing you need, your recommendation first. For a step only the user can take, the card says exactly what to do and waits until they say it is done. Never ask for a password, token, or key in an ask card. ${DONT_REPEAT}`;
     }
 
     default: {
-      return `Bridge · Question in prose: Your last message asks the user a question in plain text, which nobody answers. Call the ask tool now with that question, your recommendation first. ${DONT_REPEAT}`;
+      return `Bridge · Question in prose: Your last message asks the user a question in plain text, which nobody answers. If the user must choose, approve, or resolve something before the work can go on, call the ask tool now with that question, your recommendation first. If the question is an offer, or its only sensible answer is yes, drop it and stop without a message. ${DONT_REPEAT}`;
     }
   }
 };
@@ -70,7 +69,9 @@ const CLOSING_LINES = 5;
 const QUESTION_END = /\?["'”’*_)\]]*(?:\s|$)/u;
 
 // The heading of a section that lists what the agent needs from the user.
-// Each line under it is a request, unless it says nothing is needed.
+// Each line under it is checked for a secret, and for a wait like any
+// closing line. A plain step such as "start a new session" is a note, not a
+// block, so it doesn't count on its own.
 const NEEDS_HEADING = /\bwhat i need from you\b/iu;
 
 const NEEDS_LEAD = /^.*?\bwhat i need from you\b\W*/iu;
@@ -80,8 +81,10 @@ const NEEDS_LEAD = /^.*?\bwhat i need from you\b\W*/iu;
 const NOTHING_NEEDED =
   /\b(?:nothing|no need|no action|don't need|do not need|needn't|won't need|not needed|no longer need)\b/iu;
 
-// Sentences that hand the user a task or wait on them. "Let me know if you
-// want..." is an offer, not a wait, so a following "if" excuses it.
+// Sentences that wait on the user, so the work can't go on until they act.
+// "Let me know if you want..." is an offer, not a wait, so a following "if"
+// excuses it. Instructions such as "you'll need to" or "please restart"
+// tell the user how to use the result and don't block the run.
 const HANDOFF = [
   /\blet me know\b(?! if\b)/iu,
   /\b(?:tell|ping|message) me\b(?! if\b)/iu,
@@ -93,9 +96,6 @@ const HANDOFF = [
   /\b(?:i'll|i will|i'm|i am) (?:wait|waiting|standing by)\b/iu,
   /\bwaiting (?:for|on) you\b/iu,
   /\bblocked (?:on|until) you\b/iu,
-  /\byou(?:'ll| will)? (?:need|have) to\b/iu,
-  /^(?:\d+[.)]\s+|[-*•]\s+)?please\b/iu,
-  /\bplease (?:run|confirm|approve|check|add|set|install|restart|reply|send|share|provide|paste|open|click|enable|create|log|sign|merge|review|grant|invite|export|upload|download)\b/iu,
 ] as const;
 
 // Names of secrets, and environment variables that hold one, such as
@@ -140,13 +140,25 @@ const replyText = (message: AssistantMessage): string =>
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n");
 
-const proseLines = (text: string): string[] =>
+// Table rows and text in double quotes are examples the reply shows, not
+// something it asks, so neither counts.
+const TABLE_ROW = /^\|/u;
+
+const QUOTED = /"[^"\n]*"|“[^”\n]*”/gu;
+
+const splitLines = (text: string): string[] =>
   text
-    .replaceAll(/^```[\s\S]*?^```/gmu, "")
-    .replaceAll(/`[^`\n]*`/gu, "")
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line !== "");
+    .filter((line) => line !== "" && !TABLE_ROW.test(line));
+
+const proseLines = (text: string): string[] =>
+  splitLines(
+    text
+      .replaceAll(/^```[\s\S]*?^```/gmu, "")
+      .replaceAll(/`[^`\n]*`/gu, "")
+      .replaceAll(QUOTED, "")
+  );
 
 const asksInProse = (reply: string): boolean =>
   proseLines(reply)
@@ -156,14 +168,14 @@ const asksInProse = (reply: string): boolean =>
 // Prose for the word checks. Inline code keeps its words, because a request
 // such as "set `STRIPE_SECRET_KEY`" names its secret in code.
 const wordLines = (reply: string): string[] =>
-  reply
-    .replaceAll(/^```[\s\S]*?^```/gmu, "")
-    .replaceAll("`", "")
-    .replaceAll(/[‘’]/gu, "'")
-    .replaceAll(/\*\*|__/gu, "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "");
+  splitLines(
+    reply
+      .replaceAll(/^```[\s\S]*?^```/gmu, "")
+      .replaceAll("`", "")
+      .replaceAll(/[‘’]/gu, "'")
+      .replaceAll(/\*\*|__/gu, "")
+      .replaceAll(QUOTED, "")
+  );
 
 const sentences = (lines: readonly string[]): string[] =>
   lines.flatMap((line) => line.split(/(?<=[.!?])\s+/u));
@@ -225,7 +237,7 @@ const requestIn = (reply: string): "secret" | "handoff" | undefined => {
     return "secret";
   }
 
-  return needs.length > 0 || tail.some(handsOff) ? "handoff" : undefined;
+  return needs.some(handsOff) || tail.some(handsOff) ? "handoff" : undefined;
 };
 
 const finalAssistant = (

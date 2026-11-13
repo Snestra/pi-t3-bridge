@@ -363,8 +363,10 @@ const askTool = defineTool({
     return args as AskInput;
   },
   promptGuidelines: [
-    "Use ask for every question to the user, including a request for a decision or an approval. Never end a reply with a question in plain text, because nobody answers it there.",
-    "When the next step needs the user to act, such as a sign-up, a click in a dashboard, or a device in their hand, call ask with exactly what to do and wait for them to say it is done. Never end a reply that hands them the step or says you are waiting.",
+    "Call ask only when the user must choose between options or approve a step you can't undo, when an ambiguity blocks the work and reading or running something can't settle it, or when you are blocked on something only the user can do. Otherwise decide, do the work, and report what you did.",
+    "Don't ask a question whose only sensible answer is yes, such as whether to start, continue, or take the obvious next step, and don't ask what to do next once the work is done.",
+    "When one part is blocked and other work remains, do the other work first, then ask about the blocked part.",
+    "When you do need an answer, use ask, never a question in plain text, because nobody answers it there. When the next step is one only the user can take, such as a sign-up, a click in a dashboard, or a device in their hand, the card says exactly what to do and waits until they say it is done.",
     "For a login, token, key, or password only the user has, call request_secret where it is available, never ask, so the value stays out of the chat.",
   ],
   promptSnippet:

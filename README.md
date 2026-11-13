@@ -30,7 +30,7 @@ The package is on GitHub only, so you install it with Pi from git.
 
 ```bash
 pi install git:github.com/bjoernaagaard/pi-t3-bridge          # newest commit on main
-pi install git:github.com/bjoernaagaard/pi-t3-bridge@v0.12.1  # one release
+pi install git:github.com/bjoernaagaard/pi-t3-bridge@v0.12.2  # one release
 pi -e git:github.com/bjoernaagaard/pi-t3-bridge               # one session, nothing saved
 ```
 
@@ -253,14 +253,14 @@ on(run about to stop)
     if the closing asks for a login, token, key, or password
         and request_secret is on
       tell the agent to call request_secret
-    else if the closing hands you a task or waits on you,
-        or lists items under "What I need from you"
+    else if the closing waits on you ("once you've", "let me know when")
       tell the agent to do the task, or ask with the ask tool
     else if the last 5 lines of prose ask a question
-      tell the agent to ask with the ask tool
+      tell the agent to ask with the ask tool, or drop an offer
+        or a question whose only sensible answer is yes
 ```
 
-Each of the last three rules fires at most once per prompt. A question or a request in plain text ends the run, and nobody sees it until much later. These rules send the agent back to put it on a card that waits for your answer, so the run goes on once you answer. "Let me know if you want more" is an offer, not a wait, and "Nothing needed from you" asks for nothing, so neither counts. Code blocks don't count, and inline code counts only for its words, so `STRIPE_SECRET_KEY` names a secret but a `?` in a regex is not a question.
+Each of the last three rules fires at most once per prompt. A question or a request in plain text ends the run, and nobody sees it until much later. These rules send the agent back to put it on a card that waits for your answer, so the run goes on once you answer. "Let me know if you want more" is an offer, not a wait, and "Nothing needed from you" asks for nothing, so neither counts. An instruction such as "run /reload" or "you'll need to restart", even under "What I need from you", doesn't block the run, so it doesn't count either. Code blocks don't count, and inline code counts only for its words, so `STRIPE_SECRET_KEY` names a secret but a `?` in a regex is not a question.
 
 Inside T3, T3 offers `request_secret` only through `tool_search`, so a model rarely finds it. The bridge declares it to the model in every T3 thread that has a UI and is not a child, so a secret card is one call away, like `ask`.
 

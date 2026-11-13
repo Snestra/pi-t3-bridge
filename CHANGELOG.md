@@ -1,5 +1,9 @@
 # Change log
 
+## 0.12.2, 13 November 2026
+
+Agents ask less. The `ask` tool no longer tells the agent to use it for every question. It tells the agent to ask only to get a choice or an approval, to settle an ambiguity it can't resolve itself, or when it is blocked, and to finish other work before asking about a blocked part. The question and handoff notes now let the agent drop an offer or a question whose only sensible answer is yes. The handoff check now fires only on a reply that waits on you, such as "once you've enabled billing" or "let me know when it's done". Lines under "What I need from you", "you'll need to", and "please restart" no longer count by themselves, because they tell you how to use the result and don't block the run. The checks also skip table rows and text in double quotes, so a reply that quotes an example such as "Paste your token here" no longer triggers a nudge.
+
 ## 0.12.1, 13 November 2026
 
 These changes use features from recent T3 versions:
