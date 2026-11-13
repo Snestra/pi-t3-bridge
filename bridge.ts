@@ -17,6 +17,7 @@ import { registerRequestSecret } from "./src/bridge/request-secret.ts";
 import { registerResume } from "./src/bridge/resume.ts";
 import { registerSkills } from "./src/bridge/skills.ts";
 import { moveOldState } from "./src/bridge/state.ts";
+import { refreshStatus, registerStatus } from "./src/bridge/status.ts";
 import { createT3Execution } from "./src/bridge/t3-execution.ts";
 import { registerT3Mcp } from "./src/bridge/t3-mcp.ts";
 import { registerTaskOutcomes } from "./src/bridge/t3-tasks.ts";
@@ -50,7 +51,11 @@ const piT3Bridge = (pi: ExtensionAPI): void => {
   registerT3Mcp(pi);
   registerUsage(pi);
 
-  const goal = registerGoal(pi, execution);
+  // The status line reads the goal, so it registers after the goal's own
+  // session_start handler, which can bring a goal over from before /clear.
+  const goal = registerGoal(pi, execution, refreshStatus);
+
+  registerStatus(pi);
 
   registerResume(pi, goal.recover);
 

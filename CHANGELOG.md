@@ -1,5 +1,17 @@
 # Change log
 
+## 0.12.1, 13 November 2026
+
+These changes use features from recent T3 versions:
+
+- The bridge shows the unfinished goal, each unfinished workflow, and the model families out of usage next to the composer. T3 shows extension status there since #23901.
+- T3's `/clear` starts a new Pi session in the same thread, which dropped the goal. The goal and the facts its evidence cites now move to the new session, paused, and the bridge names any workflows it left behind.
+- The secret nudge tells the agent to pass the sign-in page as `url`, which T3 shows as a button on the card, and to use `delivery: "file"` when a shell command needs the value.
+
+This problem is fixed:
+
+- From T3 0.1.10, `t3_thread_read` returns a thread's newest items first. The check of a finished child read only its newest 100 activity items, so an earlier usage-limit error could be missed. It now pages back through `earlierPosition`, and still pages forward on older T3 versions.
+
 ## 0.12.0, 13 November 2026
 
 Agents now ask with a card instead of leaving you a request in chat:

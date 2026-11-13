@@ -211,6 +211,18 @@ In T3, press Stop before you send a goal command, because T3 refuses commands wh
 
 Goals have no token or time budget, and normal permissions still apply. Opening, reloading, or cloning a session pauses an active goal, so only `/goal resume` starts work again.
 
+T3's `/clear` starts a new Pi session in the same thread. The bridge moves an unfinished goal and the facts its evidence cites into the new session, paused, so `/goal resume` goes on with a fresh context and `/goal clear` drops it. Workflows stay in the old session, because their steps belong to it, and the bridge names the ones it left behind. Pi's own `/new` outside T3 starts with no goal.
+
+## Status line
+
+The bridge shows up to three lines next to the composer. T3 shows them above the chat box as `Pi · …`, and the Pi terminal shows them in its footer. Each line disappears when it has nothing to say.
+
+| Line | Example |
+| --- | --- |
+| The unfinished goal | `Goal active: Ship the widget with a passing build` |
+| Each unfinished workflow, with its finished steps | `Workflow fix-login 2/4` |
+| Model families out of usage | `claude out until 13:03 UTC` |
+
 ## Plan approval
 
 T3's own Plan mode does nothing in a Pi thread, because T3 doesn't send the Plan setting to Pi. The agent uses the `plan` tool instead, and while the plan card waits for you, the bridge blocks every tool that can change files.

@@ -47,7 +47,7 @@ const noteText = (kind: Kind, secretTool: string): string => {
     }
 
     case "secret": {
-      return `Bridge · Secret in prose: Your last message asks the user for a login, token, key, or password in plain text, or waits for them to set one up. Call ${secretTool} now for each secret you need, then use it yourself and carry on. For a step that is not a secret, call ask and wait until the user says it is done. ${DONT_REPEAT}`;
+      return `Bridge · Secret in prose: Your last message asks the user for a login, token, key, or password in plain text, or waits for them to set one up. Call ${secretTool} now for each secret you need, with the page where the user gets it as \`url\`, so the card shows a sign-in button, and with \`delivery: "file"\` when a shell command needs the value. Then use it yourself and carry on. For a step that is not a secret, call ask and wait until the user says it is done. ${DONT_REPEAT}`;
     }
 
     case "handoff": {

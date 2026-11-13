@@ -217,6 +217,9 @@ const markOut = (
 
 const ThreadReadSchema = obj(
   {
+    // T3 0.1.10 reads a thread newest page first and names the position of
+    // the page before it here. Older T3 reads from the start and leaves it out.
+    earlierPosition: opt(nullable(num())),
     hasMore: bool(),
     items: arr(
       obj(
@@ -235,8 +238,15 @@ const threadRead = compile(ThreadReadSchema);
 
 type ThreadRead = Static<typeof ThreadReadSchema>;
 
+// Where the next page starts: after the last page on an older T3, or before
+// the first page on a T3 that reads newest first.
+type Cursor =
+  | { readonly afterPosition: number }
+  | { readonly beforePosition: number };
+
 interface PageParams {
   readonly afterPosition?: number;
+  readonly beforePosition?: number;
   readonly limit: number;
   readonly maxCharsPerItem: number;
   readonly threadId: string;
@@ -260,13 +270,25 @@ const httpReader: PageReader = async (params) => {
   return threadRead.check(read) ? read : undefined;
 };
 
+const nextCursor = (page: ThreadRead): Cursor | undefined => {
+  if (page.earlierPosition !== undefined) {
+    return page.earlierPosition === null
+      ? undefined
+      : { beforePosition: page.earlierPosition };
+  }
+
+  return page.hasMore && page.nextPosition !== null
+    ? { afterPosition: page.nextPosition }
+    : undefined;
+};
+
 // The worst failure in the child's activity, or undefined while it runs.
 const childFailure = async (
   read: PageReader,
   childThreadId: string
 ): Promise<Classified | undefined> => {
   let failure: Classified = { kind: "other" };
-  let afterPosition: number | undefined;
+  let cursor: Cursor | undefined;
 
   for (let pages = 0; pages < MAX_READ_PAGES; pages += 1) {
     const params = {
@@ -276,10 +298,10 @@ const childFailure = async (
       view: "activity",
     };
 
-    // Each page starts after the previous page's cursor.
+    // Each page starts at the previous page's cursor.
     // oxlint-disable-next-line no-await-in-loop
     const page = await read(
-      afterPosition === undefined ? params : { afterPosition, ...params }
+      cursor === undefined ? params : { ...cursor, ...params }
     );
 
     if (
@@ -295,11 +317,11 @@ const childFailure = async (
       }
     }
 
-    if (!page.hasMore || page.nextPosition === null) {
+    cursor = nextCursor(page);
+
+    if (cursor === undefined) {
       break;
     }
-
-    afterPosition = page.nextPosition;
   }
 
   return failure;

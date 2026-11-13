@@ -2,12 +2,14 @@ import { randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { defineTool } from "@earendil-works/pi-coding-agent";
+import { defineTool, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   AgentSettledEvent,
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  SessionEntry,
+  SessionStartEvent,
   ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -30,6 +32,7 @@ import { registerUnlessTaken } from "./claim.ts";
 import { planBlocked } from "./plan.ts";
 import { isResumePrompt, recoveryPending } from "./resume.ts";
 import type { GoalIdentity } from "./resume.ts";
+import { insideT3 } from "./t3-http.ts";
 import {
   taskDisposition,
   taskOutcome,
@@ -38,7 +41,8 @@ import {
   waitingOnChild,
 } from "./t3-tasks.ts";
 import type { GoalExecutionState, TaskState } from "./t3-tasks.ts";
-import { unfinishedWorkflows } from "./workflow-store.ts";
+import { unfinishedWorkflows, workflowsOnBranch } from "./workflow-store.ts";
+import { workflowAccepted } from "./workflow.ts";
 
 const GOAL_ENTRY = "pi-t3-goal";
 const HOLD_ENTRY = "pi-t3-goal-question";
@@ -217,12 +221,11 @@ const UNAVAILABLE = "Goal tools are unavailable or owned by another extension.";
 const REJECTED_UPDATE =
   "Goal update rejected. Read get_goal and use its current identity and revision.";
 
-export const readGoal = (ctx: ExtensionContext): Goal | null => {
-  const entry = ctx.sessionManager
-    .getBranch()
-    .findLast(
-      (item) => item.type === "custom" && item.customType === GOAL_ENTRY
-    );
+// The saved goal on a session branch, this session's or another's.
+const goalOnBranch = (branch: readonly SessionEntry[]): Goal | null => {
+  const entry = branch.findLast(
+    (item) => item.type === "custom" && item.customType === GOAL_ENTRY
+  );
 
   if (entry?.type !== "custom") {
     return null;
@@ -280,6 +283,9 @@ export const readGoal = (ctx: ExtensionContext): Goal | null => {
       };
 };
 
+export const readGoal = (ctx: ExtensionContext): Goal | null =>
+  goalOnBranch(ctx.sessionManager.getBranch());
+
 const goalNeedsUser = (ctx: ExtensionContext, goal: Goal): boolean => {
   const last = ctx.sessionManager
     .getBranch()
@@ -317,20 +323,24 @@ export const goalAllowsExecution = (
   }
 };
 
+const factsOnBranch = (
+  branch: readonly SessionEntry[],
+  goalId: string
+): Static<typeof FactSchema>[] =>
+  branch.flatMap((entry) =>
+    entry.type === "custom" &&
+    entry.customType === FACT_ENTRY &&
+    factInput.check(entry.data) &&
+    entry.data.goalId === goalId
+      ? [entry.data]
+      : []
+  );
+
 const facts = (
   ctx: ExtensionContext,
   goal: Goal
 ): Static<typeof FactSchema>[] =>
-  ctx.sessionManager
-    .getBranch()
-    .flatMap((entry) =>
-      entry.type === "custom" &&
-      entry.customType === FACT_ENTRY &&
-      factInput.check(entry.data) &&
-      entry.data.goalId === goal.id
-        ? [entry.data]
-        : []
-    );
+  factsOnBranch(ctx.sessionManager.getBranch(), goal.id);
 
 // The facts get_goal returns: the ones evidence can still cite (the latest
 // from each producer at the current requirement revision, as
@@ -756,9 +766,12 @@ interface GoalRuntime {
   readonly settle: (event: AgentSettledEvent, ctx: ExtensionContext) => void;
 }
 
+// `afterCommand` runs after /goal, which can change the goal while no run
+// is active, so the status line can show the new state.
 export const registerGoal = (
   pi: ExtensionAPI,
-  execution: GoalExecution
+  execution: GoalExecution,
+  afterCommand: (ctx: ExtensionContext) => void
 ): GoalRuntime => {
   const renderSnapshot = createSnapshotRenderer(pi);
 
@@ -1384,6 +1397,8 @@ export const registerGoal = (
         );
       } catch (error) {
         show(ctx, error instanceof Error ? error.message : String(error));
+      } finally {
+        afterCommand(ctx);
       }
     },
   });
@@ -1412,7 +1427,68 @@ export const registerGoal = (
     }
   };
 
-  pi.on("session_start", (_event, ctx) => restore(ctx));
+  // T3's /clear starts a new Pi session in the same thread. The goal is the
+  // thread's, so it moves to the new session with the facts its evidence
+  // cites, paused, so the fresh context starts only when the user resumes.
+  // Workflows hold child task state tied to the old session, so they stay.
+  const carryOver = (event: SessionStartEvent, ctx: ExtensionContext): void => {
+    if (
+      event.reason !== "new" ||
+      event.previousSessionFile === undefined ||
+      !insideT3() ||
+      readGoal(ctx) !== null
+    ) {
+      return;
+    }
+
+    let branch: SessionEntry[];
+    let goal: Goal | null;
+
+    try {
+      branch = SessionManager.open(event.previousSessionFile).getBranch();
+      goal = goalOnBranch(branch);
+    } catch {
+      return;
+    }
+
+    const left = workflowsOnBranch(branch).filter(
+      (workflow) => !workflowAccepted(workflow)
+    );
+
+    if (goal !== null && goal.status !== "complete") {
+      for (const fact of factsOnBranch(branch, goal.id)) {
+        pi.appendEntry(FACT_ENTRY, fact);
+      }
+
+      const kept =
+        goal.status === "active"
+          ? {
+              ...goal,
+              reason: "Kept from before /clear. Use /goal resume.",
+              revision: goal.revision + 1,
+              status: "paused" as const,
+            }
+          : goal;
+
+      save(kept);
+      show(
+        ctx,
+        `${kept.status}\n${kept.objective}\nKept from before /clear. Use /goal resume to go on, or /goal clear to drop it.`
+      );
+    }
+
+    if (left.length > 0) {
+      show(
+        ctx,
+        `Workflows left in the session before /clear: ${left.map((workflow) => workflow.id).join(", ")}. Their delegated tasks keep running in T3, but this session can't move their steps.`
+      );
+    }
+  };
+
+  pi.on("session_start", (event, ctx) => {
+    carryOver(event, ctx);
+    restore(ctx);
+  });
   pi.on("session_tree", (_event, ctx) => restore(ctx));
   pi.on("ui_prompt_start", (_event, ctx) => {
     uiHolds.add(ctx.sessionManager.getSessionId());

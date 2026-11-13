@@ -1,6 +1,7 @@
 import type {
   ExtensionAPI,
   ExtensionContext,
+  SessionEntry,
 } from "@earendil-works/pi-coding-agent";
 
 import { savedWorkflow, workflowOwnerCheckpoint } from "./workflow-schema.ts";
@@ -25,10 +26,13 @@ interface Saved {
   workflow: Workflow;
 }
 
-export const listWorkflows = (ctx: ExtensionContext): Workflow[] => {
+// The workflows saved on a session branch, this session's or another's.
+export const workflowsOnBranch = (
+  branch: readonly SessionEntry[]
+): Workflow[] => {
   const workflows = new Map<string, Workflow>();
 
-  for (const entry of ctx.sessionManager.getBranch()) {
+  for (const entry of branch) {
     if (entry.type !== "custom" || entry.customType !== ENTRY) {
       continue;
     }
@@ -44,6 +48,9 @@ export const listWorkflows = (ctx: ExtensionContext): Workflow[] => {
 
   return structuredClone([...workflows.values()]);
 };
+
+export const listWorkflows = (ctx: ExtensionContext): Workflow[] =>
+  workflowsOnBranch(ctx.sessionManager.getBranch());
 
 export const readWorkflow = (
   ctx: ExtensionContext,
