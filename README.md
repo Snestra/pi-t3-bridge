@@ -29,9 +29,9 @@ On Linux, delegated children run in a `bwrap` sandbox, so you also need the `bub
 The package is on GitHub only, so you install it with Pi from git.
 
 ```bash
-pi install git:github.com/Snestra/pi-t3-bridge          # newest commit on main
-pi install git:github.com/Snestra/pi-t3-bridge@v0.12.1  # one release
-pi -e git:github.com/Snestra/pi-t3-bridge               # one session, nothing saved
+pi install git:github.com/bjoernaagaard/pi-t3-bridge          # newest commit on main
+pi install git:github.com/bjoernaagaard/pi-t3-bridge@v0.12.1  # one release
+pi -e git:github.com/bjoernaagaard/pi-t3-bridge               # one session, nothing saved
 ```
 
 `pi update --extensions` moves an install from `main` to the newest commit. If you still have the old npm package, run `pi remove npm:pi-t3-bridge` before you install from git.
@@ -42,7 +42,7 @@ Each of the four extensions works on its own, so you can load only the ones you 
 {
   "packages": [
     {
-      "source": "git:github.com/Snestra/pi-t3-bridge",
+      "source": "git:github.com/bjoernaagaard/pi-t3-bridge",
       "extensions": ["bridge.ts"]
     }
   ]
