@@ -93,7 +93,7 @@ GitHub Releases now provides an optional archive signed with Packslip. The READM
 
 GitHub Actions now runs the checks on pull requests and changes to main. The Linux sandbox checks run in Docker without privileged mode.
 
-The package is no longer published to npm, and 0.8.3 is the last npm release. Install it from GitHub with `pi install git:github.com/Snestra/pi-t3-bridge`. If you have the npm package, run `pi remove npm:pi-t3-bridge` first. `package.json` is marked private, so `npm publish` refuses to run.
+The package is no longer published to npm, and 0.8.3 is the last npm release. Install it from GitHub with `pi install git:github.com/bjoernaagaard/pi-t3-bridge`. If you have the npm package, run `pi remove npm:pi-t3-bridge` first. `package.json` is marked private, so `npm publish` refuses to run.
 
 Pi in a terminal signs in to T3's MCP server by itself. Before, it asked you to approve a sign-in page at `127.0.0.1:3773`, which never loads when your browser runs on another machine than T3. The bridge now gets a one-time pairing code from the running server's `t3` CLI, trades it for a 30-day token, and saves the token in `~/.local/state/pi-t3/t3-mcp.json`. It signs in again when the token is rejected or expires within a day. A T3 server on another machine still uses the browser sign-in.
 

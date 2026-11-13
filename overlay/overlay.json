@@ -119,7 +119,7 @@
     "skills/poteto-help/SKILL.md": [
       {
         "find": "1. Install t3-pstack per its [README](https://github.com/chhoumann/t3-pstack#readme). One `npx -y github:chhoumann/t3-pstack install` run installs it in every Claude Code and Codex config home T3 can run.",
-        "replace": "1. In Pi, pstack ships inside the pi-t3-bridge package, so `pi install git:github.com/Snestra/pi-t3-bridge` installs it. There is nothing else to install."
+        "replace": "1. In Pi, pstack ships inside the pi-t3-bridge package, so `pi install git:github.com/bjoernaagaard/pi-t3-bridge` installs it. There is nothing else to install."
       },
       {
         "find": "t3-pstack is pstack rewritten for T3 Code, and it installs in Claude Code and Codex with `npx -y github:chhoumann/t3-pstack install`.",

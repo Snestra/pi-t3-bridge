@@ -9,14 +9,14 @@
     "pstack",
     "t3-code"
   ],
-  "homepage": "https://github.com/Snestra/pi-t3-bridge#readme",
+  "homepage": "https://github.com/bjoernaagaard/pi-t3-bridge#readme",
   "bugs": {
-    "url": "https://github.com/Snestra/pi-t3-bridge/issues"
+    "url": "https://github.com/bjoernaagaard/pi-t3-bridge/issues"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Snestra/pi-t3-bridge.git"
+    "url": "git+https://github.com/bjoernaagaard/pi-t3-bridge.git"
   },
   "workspaces": [
     "pstack/skills/statechart/scripts"
