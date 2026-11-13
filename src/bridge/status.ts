@@ -8,7 +8,7 @@ import type {
   ToolExecutionEndEvent,
 } from "@earendil-works/pi-coding-agent";
 
-import { familyOpen, readFamilies } from "./accounts.ts";
+import { familyOpen, shownFamilies } from "./accounts.ts";
 import { readGoal } from "./goal.ts";
 import { listWorkflows } from "./workflow-store.ts";
 import { workflowAccepted } from "./workflow.ts";
@@ -69,10 +69,10 @@ const workflowLine = (ctx: ExtensionContext): string | undefined => {
 
 const clock = (iso: string): string => iso.slice(11, 16);
 
-const familiesLine = (): string | undefined => {
+const familiesLine = (ctx: ExtensionContext): string | undefined => {
   const now = Date.now();
 
-  const out = Object.entries(readFamilies()).flatMap(([name, record]) => {
+  const out = Object.entries(shownFamilies(ctx)).flatMap(([name, record]) => {
     if (familyOpen(record, now)) {
       return [];
     }
@@ -109,7 +109,7 @@ export const refreshStatus = (ctx: ExtensionContext): void => {
 
   show(ctx, KEYS.goal, goalLine(ctx));
   show(ctx, KEYS.workflows, workflowLine(ctx));
-  show(ctx, KEYS.families, familiesLine());
+  show(ctx, KEYS.families, familiesLine(ctx));
 };
 
 // Events after which the goal, a workflow, or a family can have changed.
