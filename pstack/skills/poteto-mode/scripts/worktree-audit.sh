@@ -36,11 +36,12 @@ cd "$repo" || exit 1
 git rev-parse --git-dir >/dev/null 2>&1 || { echo "error: not a git repo: $repo" >&2; exit 1; }
 
 # Main worktree is the first entry; everything else is a candidate.
-main_wt=$(git worktree list --porcelain | awk '/^worktree /{print $2; exit}')
+main_wt=$(git worktree list --porcelain | awk '/^worktree /{print substr($0, 10); exit}')
 
 if [ -z "$base" ]; then
-	for cand in "$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null)" origin/main origin/master; do
-		[ -n "$cand" ] && git rev-parse --verify --quiet "$cand^{commit}" >/dev/null && { base="$cand"; break; }
+	origin_head=$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)
+	for cand in "${origin_head#refs/remotes/}" origin/main origin/master; do
+		[ -n "$cand" ] && git rev-parse --verify --quiet "refs/remotes/$cand^{commit}" >/dev/null && { base="$cand"; break; }
 	done
 	[ -z "$base" ] && { echo "error: no base ref (origin/HEAD, origin/main, origin/master all missing); pass -b <ref>" >&2; exit 1; }
 	echo "warn: no -b given; MERGED checks against $base" >&2
@@ -55,7 +56,14 @@ if [ -n "$fetch" ]; then
 		|| echo "warn: could not fetch $base; merged column may be stale" >&2 ;;
 	esac
 fi
-git rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1 \
+# A local branch or tag named origin/main wins git's shorthand lookup over
+# refs/remotes/origin/main, so a base under a remote's name is read by its
+# full name.
+base_ref="$base"
+while IFS= read -r name; do
+	case "$base" in "$name"/*) base_ref="refs/remotes/$base" ;; esac
+done < <(git remote)
+git rev-parse --verify --quiet "$base_ref^{commit}" >/dev/null 2>&1 \
 	|| { echo "error: base ref not found: $base; --fetch fetches an origin/* base" >&2; exit 1; }
 
 disposable='(\.build|\.cache|\.dart_tool|\.DS_Store|\.gradle|\.lake|\.lycheecache|\.mypy_cache|\.next|\.nuxt'
@@ -96,7 +104,7 @@ now=$(date +%s)
 echo "# base: $base"
 printf "SIZE\tAGE\tMERGED\tDIRTY\tREMOTE\tPR\tLAST_CHAT\tBUCKET\tWORKTREE\n"
 
-git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt; do
+git worktree list --porcelain | awk '/^worktree /{print substr($0, 10)}' | while IFS= read -r wt; do
 	[ "$wt" = "$main_wt" ] && continue
 
 	size=$(du -sh "$wt" 2>/dev/null | awk '{print $1}')
@@ -106,7 +114,7 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt;
 
 	# Squash-merged branches are not ancestors of the base, so PR state is the
 	# real signal; merge-base only catches fast-forward/rebase merges.
-	git merge-base --is-ancestor "$head" "$base" 2>/dev/null && merged=YES || merged=no
+	git merge-base --is-ancestor "$head" "$base_ref" 2>/dev/null && merged=YES || merged=no
 
 	# `git worktree remove` deletes ignored files without asking, and a .env or
 	# .claude/settings.local.json may exist nowhere else. An explicit
@@ -131,16 +139,20 @@ git worktree list --porcelain | awk '/^worktree /{print $2}' | while read -r wt;
 	[ "$reflog_only" != 0 ] && dirty="${dirty:+$dirty,}reflog:$reflog_only"
 	[ -z "$dirty" ] && dirty=clean
 
-	branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || echo "")
+	branch=$(git -C "$wt" symbolic-ref --quiet HEAD 2>/dev/null || echo "")
+	branch=${branch#refs/heads/}
 	if [ -z "$branch" ]; then remote=detached
 	elif git -C "$wt" show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-		[ "$(git -C "$wt" rev-parse "origin/$branch" 2>/dev/null)" = "$head" ] \
+		[ "$(git -C "$wt" rev-parse "refs/remotes/origin/$branch" 2>/dev/null)" = "$head" ] \
 			&& remote=pushed \
-			|| remote="ahead$(git -C "$wt" rev-list --count "origin/$branch..HEAD" 2>/dev/null)"
+			|| remote="ahead$(git -C "$wt" rev-list --count "refs/remotes/origin/$branch..HEAD" 2>/dev/null)"
 	else remote=no-remote; fi
 
-	pr=$([ -n "$branch" ] && jq -r --arg b "$branch" \
-		'.[] | select(.head==$b) | "#\(.number)/\(.state)"' "$prs" 2>/dev/null | head -1)
+	# PRs come newest first, so a newer closed or merged PR for the branch
+	# would hide an older one that is still open. An open record wins.
+	pr=$([ -n "$branch" ] && jq -r --arg b "$branch" '[.[] | select(.head==$b)]
+		| (map(select(.state=="open" or .state=="draft")) + .)[0] // empty
+		| "#\(.number)/\(.state)"' "$prs" 2>/dev/null)
 	[ -z "$pr" ] && pr="-"
 
 	# Most recent chat whose transcript operated in this worktree. Match path

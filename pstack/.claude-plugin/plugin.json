@@ -1,7 +1,7 @@
 {
   "name": "t3-pstack",
   "displayName": "t3-pstack (pstack for T3 Code)",
-  "version": "2.2.1",
+  "version": "2.2.8",
   "description": "pstack for T3 Code: Lauren Tan's pstack with its Cursor mechanics rewritten in place for T3, so subagents, panels, schedules, and PR watches dispatch through T3's orchestration and panels mix Claude, GPT, and Grok.",
   "author": {
     "name": "Christian Bager Bach Houmann",

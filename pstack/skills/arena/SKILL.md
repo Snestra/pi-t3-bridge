@@ -15,7 +15,7 @@ Every candidate gets the same prompt, so the prompt is the contract.
 1. State the artifact each candidate is producing.
 2. Derive the rubric, 3-6 concrete gradeable criteria for what success looks like on *this* task. It is the picker's tool in Phase D. Candidates only see the task.
 3. Pick the runners. Call `pstack_model` with `arena runners` and run one seat per returned target. If it returns `blocked`, record its reason and stop the arena. Spawn more runners when the arena covers multiple design directions. Use the same model N times when the work is generation-bound rather than judgment-sensitive. Pick each subagent's reasoning level and fast or standard speed for the job, per the Subagents section of the **poteto-mode** skill.
-4. Give each candidate its own output location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`), per the **separate-before-serializing-shared-state** principle skill.
+4. Give each candidate its own output location (a git worktree where possible, otherwise `/tmp/arena-<slug>/candidate-<n>/`), per the **separate-before-serializing-shared-state** principle skill. On T3 that worktree comes from `isolation: "worktree"`, or from `git worktree add` where poteto-mode's Dispatch on T3 says so. T3 makes an isolated worktree only once the candidate starts, so its brief names its own worktree as its output location, and its reply names the path.
 
 ## Phase B: Fan out
 
