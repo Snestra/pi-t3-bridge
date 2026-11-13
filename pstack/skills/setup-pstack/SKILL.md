@@ -19,14 +19,14 @@ The default role-to-target mapping is the sheet shape in step 5 below. If the sh
 
 ### 3. Budget, map, and confirm
 
-**(a) Ask for a budget.** Ask a structured multiple-choice question (`AskUserQuestion` on Claude Code, numbered options in plain text elsewhere). Offer these four options with these exact labels, and name the current budget when the sheet records one. With no sheet, say that `medium` matches the skill defaults.
+**(a) Ask for a budget.** Ask a structured multiple-choice question (`AskUserQuestion` on Claude Code, numbered options in plain text elsewhere). Offer these four options with these exact labels, and name the current budget when the sheet records one. With no sheet, say that `large` matches the skill defaults.
 
 - `unlimited - max reasoning`
 - `large - xhigh reasoning`
 - `medium - high reasoning`
 - `small - medium reasoning`
 
-**(b) Apply it.** Build the working table from the defaults, and on a re-run keep any role you changed by provider, list, or alias (`inherit-parent`, `auto`). `unlimited`, `large`, and `small` set the reasoning option of every entry, panel entries included, to `max`, `xhigh`, or `medium`. `medium` writes no reasoning option, so `pstack_model` sets `low`, `medium`, or `high` from each job's complexity. Use the option ID that provider lists. If the provider does not offer that value, use its highest value at or below the target, else mark the role as needing a choice. So Grok, whose reasoning tops out at `xhigh`, stays at `xhigh` under `unlimited`. `inherit-parent` and `auto` do not change. Say when you offer `unlimited` or `large` that a sheet's `xhigh` or `max` still runs only when the user's latest message in that chat is "allow xhigh" (or "allow max"). Otherwise `delegate_task` refuses it, so those budgets mostly fall back to asking.
+**(b) Apply it.** Build the working table from the defaults, and on a re-run keep any role you changed by provider, list, or alias (`inherit-parent`, `auto`). `unlimited`, `large`, `medium`, and `small` set the reasoning option of every entry, panel entries included, to `max`, `xhigh`, `high`, or `medium`. Use the option ID that provider lists. If the provider does not offer that value, use its highest value at or below the target, else mark the role as needing a choice. So Grok, whose reasoning tops out at `xhigh`, stays at `xhigh` under `unlimited`. `inherit-parent` and `auto` do not change.
 
 **(c) Show the roles and confirm.** Show every role with its entry, marking any target not in the detected set as needing a choice. Also list each line step 2 dropped. Ask whether to accept as-is or change specific roles, offering the detected targets plus `inherit-parent` and `auto` (both mean: this role runs on the parent chat's model) as the options. For panel roles (`arena runners`, `architect runners`, `interrogate reviewers`) the value is a list, and one subagent runs per entry, alias entries included, so the list length sets the count. A panel needs at least two model families among its targets. A model's family is the first segment of its ID's last `/` part, such as `claude`, `gpt`, or `grok`. `arena cross-judge pool` is also a list, but Arena runs one judge. It tries only values from a family other than the parent's. Among those it tries first the ones whose model ran fewer candidates, and list order decides among values that ran as many, so order it by preference. An `inherit-parent` or `auto` value never judges. `swarm workers` is the default target for every worker unless a race or comparison assigns another per arm.
 
@@ -42,25 +42,25 @@ Overwrite the sheet with the candidate, creating its directory and writing throu
 
 ```markdown
 # pstack model configuration (T3). One line per role. Delete a line to fall back to the skill default.
-# With a job and size, pstack_model uses the routing table in models.json. `inherit-parent` or `auto` lets the table decide, or routes within the parent chat's family by complexity when no job is given. A named model is used as written.
-# budget: medium (low, medium, or high by job complexity)
-feature, refactoring: inherit-parent
-bug-fix: inherit-parent
-perf-issue: inherit-parent
-hillclimb: inherit-parent
-judgment and prose: inherit-parent
-hardest tasks: inherit-parent
-how explorer: inherit-parent
-how explainer: inherit-parent
-why investigators: inherit-parent
-why synthesizer: inherit-parent
-reflect tooling: inherit-parent
-reflect judgment, divergent, synthesizer: inherit-parent
-arena runners: claudeAgent/claude-opus-5-5, muse/muse-wonder-full-1.0, codex/gpt-6-astra
-arena cross-judge pool: claudeAgent/claude-opus-5-5, muse/muse-wonder-full-1.0, codex/gpt-6.1-sol
-swarm workers: inherit-parent
-architect runners: claudeAgent/claude-opus-5-5, muse/muse-wonder-full-1.0, codex/gpt-6-astra
-interrogate reviewers: claudeAgent/claude-opus-5-5, muse/muse-wonder-full-1.0, codex/gpt-6.1-sol
+# `inherit-parent` or `auto` as a value: the role runs on the parent chat's model (`delegate_task` omits `target`). Alias entries in a panel list still count toward its fan-out.
+# budget: large (xhigh)
+feature, refactoring: claudeAgent/claude-opus-5-5 effort=xhigh
+bug-fix: claudeAgent/claude-fable-5-1 effort=xhigh
+perf-issue: claudeAgent/claude-fable-5-1 effort=xhigh
+hillclimb: claudeAgent/claude-fable-5-1 effort=xhigh
+judgment and prose: claudeAgent/claude-opus-5-5 effort=xhigh
+hardest tasks: claudeAgent/claude-fable-5-1 effort=xhigh
+how explorer: claudeAgent/claude-opus-5-5 effort=xhigh
+how explainer: claudeAgent/claude-opus-5-5 effort=xhigh
+why investigators: claudeAgent/claude-opus-5-5 effort=xhigh
+why synthesizer: claudeAgent/claude-opus-5-5 effort=xhigh
+reflect tooling: claudeAgent/claude-opus-5-5 effort=xhigh
+reflect judgment, divergent, synthesizer: claudeAgent/claude-opus-5-5 effort=xhigh
+arena runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh, grok/grok-4.7 reasoningEffort=xhigh
+arena cross-judge pool: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh, grok/grok-4.7 reasoningEffort=xhigh
+swarm workers: claudeAgent/claude-opus-5-5 effort=xhigh
+architect runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh, grok/grok-4.7 reasoningEffort=xhigh
+interrogate reviewers: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh, grok/grok-4.7 reasoningEffort=xhigh
 session hook: on
 ```
 

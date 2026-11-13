@@ -28,7 +28,7 @@ Skip Phase A only when the work is genuinely greenfield with no surrounding syst
 
 Run the **arena** skill with the design-sketch task and the Phase A grounding artifacts. Pass `references/runner-prompt.md` as each runner's prompt.
 
-Get the runners from `pstack_model` with `architect runners`, in place of `arena runners`. If it returns `blocked`, record its reason and stop.
+Take the runners from the `architect runners` line in the model sheet, in place of the `arena runners` line. If the sheet or that line is missing, use the defaults in [Models](#models). Alias and rejected entries follow the runner rules in the **arena** skill's Phase A.
 
 Design it twice. Require at least two structurally distinct candidates before synthesis, even when the first looks sufficient. This is the **exhaust-the-design-space** principle skill made concrete. Whole-shape alternatives, not point fixes inside one shape.
 
@@ -80,6 +80,6 @@ The caller's usage is written first and the type sketch derived from it. One fil
 
 ## Models
 
-Get every target from the `pstack_model` tool. Pass the role name plus the job type and size from the routing table in poteto-mode's Subagents section. This skill's spawns are `design` jobs. Write every brief from `<plugin root>/skills/poteto-mode/brief.md`: the extension refuses a `delegate_task` call whose brief is missing its sections or limits. Without a job, pass the complexity: `groundwork` for cheap mechanical work, `bounded` for involved but bounded work, `general` for work that needs substantial judgment. The tool reads the role's line in the model sheet (`~/.config/t3-pstack/models.md`, written by `/setup-pstack`). A line naming a model is used as written, moved to a provider T3 can run right now when needed. A role with no line, or `inherit-parent` or `auto`, is routed by this extension's `models.json`: the parent's model family, sized and reasoned by complexity, and for panels one seat per family. The extension blocks a `delegate_task` call that uses the reserved Fable model or fast mode unless the user named it, reasoning above what `pstack_model` returned, or reasoning above high unless the user's latest message is "allow xhigh". Pass each returned target as `delegate_task`'s `target`. `inherit-parent` means omit `target`. `blocked` means the panel cannot reach two model families on this T3, so record its reason.
+Role defaults on T3, stamped from `plugins/pstack/models.json`. A role line in the model sheet overrides each one. The sheet is `~/.config/t3-pstack/models.md` (`$XDG_CONFIG_HOME/t3-pstack/models.md` when that is set), one per machine, and `/setup-pstack` writes it. When it is missing, read `t3-pstack-models.md` in the host's config directory (`$CLAUDE_CONFIG_DIR` or `~/.claude` on Claude Code, `$CODEX_HOME` or `~/.codex` on Codex). An entry is `<providerInstanceId>/<modelId>` plus `<optionId>=<value>` pairs, and it maps onto `delegate_task`'s `target`, with the provider instance as `providerInstanceId`, the model as `model`, and the pairs as `options`. It splits at its first `/`, so a model ID with its own `/`, such as OpenCode's `<provider>/<model>`, is written whole after it. Option IDs differ per provider, so take them from `orchestrator_capabilities`. `inherit-parent` or `auto` omits `target`.
 
-- architect runners: panel, one seat per model family
+- architect runners: `claudeAgent/claude-opus-5-5 effort=xhigh`, `codex/gpt-6.1-sol reasoningEffort=xhigh`, `grok/grok-4.7 reasoningEffort=xhigh`
