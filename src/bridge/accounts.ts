@@ -93,6 +93,21 @@ const familiesFile = compile(
 export const readFamilies = (): Families =>
   readState(FAMILIES, familiesFile)?.families ?? {};
 
+const knownFamilies = (ctx: ExtensionContext): string[] =>
+  ctx.modelRegistry.getAll().map((model) => family(model.id));
+
+// The marks for families that still have a model. A cancelled subscription
+// leaves its family's mark behind, and nothing can use that family any more,
+// so the mark is not worth showing. The mark stays in the file, because
+// another session's model list can differ from this one's.
+export const shownFamilies = (ctx: ExtensionContext): Families => {
+  const known = new Set(knownFamilies(ctx));
+
+  return Object.fromEntries(
+    Object.entries(readFamilies()).filter(([name]) => known.has(name))
+  );
+};
+
 // The change sees the family's record as it is under the lock, so a guard
 // inside it cannot race another session.
 const updateFamily = (
@@ -402,9 +417,6 @@ const parseFamily = (
 
   return name;
 };
-
-const knownFamilies = (ctx: ExtensionContext): string[] =>
-  ctx.modelRegistry.getAll().map((model) => family(model.id));
 
 type LastRun =
   | { readonly family: string; readonly kind: "answered" }

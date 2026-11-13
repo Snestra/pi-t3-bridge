@@ -4,7 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-import { accountLines, delegatedChildren, readFamilies } from "./accounts.ts";
+import { accountLines, delegatedChildren, shownFamilies } from "./accounts.ts";
 import { appendLedger, readLedger } from "./ledger.ts";
 import type { LedgerLine } from "./ledger.ts";
 import { isDelegatedChild, ownThreadId } from "./thread.ts";
@@ -127,7 +127,7 @@ const usageText = (ctx: ExtensionContext): string => {
     0
   );
 
-  const out = accountLines(readFamilies());
+  const out = accountLines(shownFamilies(ctx));
 
   return [
     `This thread: ${thread.replies} replies, ${count(thread.tokens)} tokens, ${dollars(thread.cost)}, cache hit rate ${hitRate(thread.input, thread.cacheRead, thread.cacheWrite)}.`,
