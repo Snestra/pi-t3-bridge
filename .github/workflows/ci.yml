@@ -16,7 +16,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 26
-      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      # The sandbox tests run bwrap, and Ubuntu runners block the user
+      # namespaces it needs unless this AppArmor restriction is off.
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap && sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check
